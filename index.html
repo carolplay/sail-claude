@@ -378,6 +378,18 @@ const SHIP_CLASSES=[
  {id:3,n:"盖伦帆船", cap:520, spd:11.5, turn:0.40, price:72000},
 ];
 const TRADER={cap:150, spd:8.5, price:6000, tax:0.90};  // 自动航线商船(销售缴10%关税)
+const NPC_ROUTE_INTERVAL=14400; // 每 4 个游戏小时扩展一条航路（约现实 2 分钟）
+const NPC_ROUTE_PLANS=[
+  {name:"阿尔瓦罗商会 · 伊比利亚线", ports:[0,2,5], owner:"阿尔瓦罗"},
+  {name:"索菲亚商会 · 意大利线", ports:[8,9,10,12], owner:"索菲亚"},
+  {name:"伊德里斯商会 · 东地中海线", ports:[14,16,17,18], owner:"伊德里斯"},
+  {name:"阿尔瓦罗商会 · 大西洋线", ports:[0,1,3,4], owner:"阿尔瓦罗"},
+  {name:"索菲亚商会 · 岛屿线", ports:[7,11,12,19], owner:"索菲亚"},
+  {name:"伊德里斯商会 · 黎凡特线", ports:[13,15,16,18], owner:"伊德里斯"},
+  {name:"阿尔瓦罗商会 · 北非线", ports:[2,22,20,19], owner:"阿尔瓦罗"},
+  {name:"索菲亚商会 · 亚得里亚线", ports:[9,10,13,14], owner:"索菲亚"},
+  {name:"伊德里斯商会 · 香料线", ports:[17,18,16,15], owner:"伊德里斯"},
+];
 
 /* 价格函数:随港口/日期波动,纯函数便于离线结算 */
 function hash1(s){ let h=0; for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;} return (h>>>0)/4294967295; }
@@ -1082,6 +1094,7 @@ const G={
   docked:-1,                       // 港口idx, -1为海上
   routes:[],                       // {name, ports:[idx], paths:[wp[]], profit, trips}
   fleet:[],                        // {routeIdx, leg, s(路径参数u), dockT, cargo:{}, gold?}
+  npcNextRoute:0,                  // 下一条 NPC 扩展航线的游戏时间
   lastSave:0,
 };
 const player={
@@ -1093,6 +1106,30 @@ const focus={type:"player", idx:-1};           // 跟随对象:player | fleet
 const weather={cloud:0.25, rain:0, state:0, t:99};
 
 function angNorm(a){ while(a>Math.PI)a-=Math.PI*2; while(a<-Math.PI)a+=Math.PI*2; return a; }
+
+function addNpcRoute(plan){
+  const r={name:plan.name,ports:plan.ports.slice(),profit:0,trips:0,npc:true,owner:plan.owner};
+  compileRoute(r);
+  G.routes.push(r);
+  const f={routeIdx:G.routes.length-1,leg:0,s:0,dockT:0,cargo:{},buyCost:0,npc:true,owner:plan.owner,gold:18000};
+  G.fleet.push(f);
+  if(scene) initFleetMesh(f);
+}
+function ensureNpcNetwork(){
+  const npcRoutes=G.routes.filter(r=>r.npc).length;
+  for(let i=npcRoutes;i<Math.min(3,NPC_ROUTE_PLANS.length);i++) addNpcRoute(NPC_ROUTE_PLANS[i]);
+  if(!G.npcNextRoute) G.npcNextRoute=G.gt+NPC_ROUTE_INTERVAL;
+}
+function updateNpcNetwork(){
+  if(G.npcNextRoute>G.gt) return;
+  const npcRoutes=G.routes.filter(r=>r.npc).length;
+  if(npcRoutes>=NPC_ROUTE_PLANS.length){ G.npcNextRoute=Infinity; return; }
+  addNpcRoute(NPC_ROUTE_PLANS[npcRoutes]);
+  G.npcNextRoute=G.gt+NPC_ROUTE_INTERVAL;
+  const r=G.routes[G.routes.length-1];
+  toast(`航海消息：${r.owner} 商会开辟了「${r.name.split(" · ")[1]}」`);
+  if(chartOpen) refreshRouteList();
+}
 
 function updateWeather(dt){
   weather.t+=dt;
@@ -1425,7 +1462,7 @@ function renderDock(){
   }
   html+=`<hr style="border-color:#2c4258;margin:12px 0">
     <div class="shopCard"><div><b style="color:#8fd0ff">贸易商船</b>
-    <span style="color:#9ab4cc;font-size:12px">载货${TRADER.cap} · 自动跑航线 · 可购多艘(现有 ${G.fleet.length} 艘)</span></div>
+    <span style="color:#9ab4cc;font-size:12px">载货${TRADER.cap} · 自动跑航线 · 可购多艘(现有 ${G.fleet.filter(f=>!f.npc).length} 艘)</span></div>
     <div class="buybtn ${G.gold>=TRADER.price?"":"dis"}" data-trader="1">${fmt(TRADER.price)} 金</div></div>
     <div style="color:#9ab4cc;font-size:12px">贸易商船需先在海图(M)中创建航线,再到「航线」页分配。</div>`;
   ui.portBody.innerHTML=html;
@@ -1442,11 +1479,12 @@ function renderDock(){
   const tb=ui.portBody.querySelector("[data-trader]");
   if(tb) tb.onclick=()=>{
     if(G.gold<TRADER.price)return;
-    if(!G.routes.length){toast("请先在海图中创建航线");return;}
+    const ri=G.routes.findIndex(r=>!r.npc);
+    if(ri<0){toast("请先在海图中创建航线");return;}
     G.gold-=TRADER.price;
-    G.fleet.push({routeIdx:0,leg:0,s:0,dockT:0,cargo:{},buyCost:0});
+    G.fleet.push({routeIdx:ri,leg:0,s:0,dockT:0,cargo:{},buyCost:0});
     initFleetMesh(G.fleet[G.fleet.length-1]);
-    toast("贸易商船已下水,分配至航线「"+G.routes[0].name+"」");
+    toast("贸易商船已下水,分配至航线「"+G.routes[ri].name+"」");
     renderDock(); updateHUDStatic(); saveGame();
   };
 }
@@ -1455,7 +1493,13 @@ function renderRoutesTab(){
   let html="";
   if(!G.routes.length) html=`<div style="color:#9ab4cc">尚无航线。打开海图(M)→「新建自动航线」,依次点击港口即可。</div>`;
   G.routes.forEach((r,ri)=>{
-    const ships=G.fleet.filter(f=>f.routeIdx===ri).length;
+    const ships=G.fleet.filter(f=>f.routeIdx===ri&&!f.npc).length;
+    if(r.npc){
+      html+=`<div class="shopCard"><div><b style="color:#d6a8f0">${r.name}</b>
+        <span style="color:#9ab4cc;font-size:12px">${r.ports.map(i=>PORTS[i].n).join(" → ")}</span><br>
+        <span style="font-size:12px;color:#d6a8f0">${r.owner} 的 NPC 商队 · 持续扩展中</span></div></div>`;
+      return;
+    }
     html+=`<div class="shopCard"><div>
       <b style="color:#ffd98a">${r.name}</b>
       <span style="color:#9ab4cc;font-size:12px">${r.ports.map(i=>PORTS[i].n).join(" → ")}</span><br>
@@ -1469,7 +1513,7 @@ function renderRoutesTab(){
   ui.portBody.querySelectorAll("[data-assign]").forEach(b=>{
     b.onclick=()=>{
       const ri=+b.dataset.assign;
-      const free=G.fleet.find(f=>f.routeIdx!==ri);
+      const free=G.fleet.find(f=>!f.npc&&f.routeIdx!==ri);
       if(!free){toast("没有可调配的商船(去船坞购买)");return;}
       free.routeIdx=ri; free.leg=0; free.s=0; free.cargo={};
       toast("已调配一艘商船");
@@ -1479,7 +1523,7 @@ function renderRoutesTab(){
   ui.portBody.querySelectorAll("[data-del]").forEach(b=>{
     b.onclick=()=>{
       const ri=+b.dataset.del;
-      if(G.fleet.some(f=>f.routeIdx===ri)){toast("航线上还有商船,先调离");return;}
+      if(G.fleet.some(f=>f.routeIdx===ri&&!f.npc)){toast("航线上还有商船,先调离");return;}
       G.routes.splice(ri,1);
       G.fleet.forEach(f=>{if(f.routeIdx>ri)f.routeIdx--;});
       renderRoutesTab(); refreshRouteList(); saveGame();
@@ -1508,7 +1552,8 @@ function fleetTrade(f,atPortIdx,nextPortIdx,tGame){
   for(const gid in f.cargo){
     profit+=Math.floor(f.cargo[gid]*priceAt(atPortIdx,gid,day)*0.97*TRADER.tax);
   }
-  G.gold+=profit;
+  if(f.npc) f.gold=(f.gold||0)+profit;
+  else G.gold+=profit;
   const netProfit=profit-(f.buyCost||0);
   f.cargo={}; f.buyCost=0;
   // 选利差最大货
@@ -1520,8 +1565,12 @@ function fleetTrade(f,atPortIdx,nextPortIdx,tGame){
   }
   if(best&&bestGain>2){
     const pb=priceAt(atPortIdx,best.id,day);
-    const q=Math.min(TRADER.cap,Math.floor(Math.max(0,G.gold*0.5)/pb));
-    if(q>0){G.gold-=q*pb; f.cargo[best.id]=q; f.buyCost=q*pb;}
+    const treasury=f.npc?(f.gold||0):G.gold;
+    const q=Math.min(TRADER.cap,Math.floor(Math.max(0,treasury*0.5)/pb));
+    if(q>0){
+      if(f.npc) f.gold-=q*pb; else G.gold-=q*pb;
+      f.cargo[best.id]=q; f.buyCost=q*pb;
+    }
   }
   return netProfit;
 }
@@ -1703,8 +1752,9 @@ function saveGame(){
     const data={
       gold:G.gold, gt:G.gt, shipClass:G.shipClass, cargo:G.cargo, docked:G.docked,
       px:player.x, pz:player.z, ph:player.heading,
-      routes:G.routes.map(r=>({name:r.name,ports:r.ports,profit:r.profit||0,trips:r.trips||0})),
-      fleet:G.fleet.map(f=>({routeIdx:f.routeIdx,leg:f.leg,s:f.s,dockT:f.dockT,cargo:f.cargo,buyCost:f.buyCost||0})),
+      routes:G.routes.map(r=>({name:r.name,ports:r.ports,profit:r.profit||0,trips:r.trips||0,npc:!!r.npc,owner:r.owner||null})),
+      fleet:G.fleet.map(f=>({routeIdx:f.routeIdx,leg:f.leg,s:f.s,dockT:f.dockT,cargo:f.cargo,buyCost:f.buyCost||0,npc:!!f.npc,owner:f.owner||null,gold:f.gold||0})),
+      npcNextRoute:G.npcNextRoute,
       ts:Date.now(),
     };
     localStorage.setItem("dhh_med_save",JSON.stringify(data));
@@ -1721,6 +1771,8 @@ function loadGame(){
     G.routes=(d.routes||[]).map(r=>({...r}));
     for(const r of G.routes) compileRoute(r);
     G.fleet=(d.fleet||[]).map(f=>({...f}));
+    G.npcNextRoute=d.npcNextRoute||0;
+    ensureNpcNetwork();
     const off=(Date.now()-d.ts)/1000;
     if(off>10){
       offlineProgress(off);
@@ -1906,6 +1958,7 @@ function closeChart(){
 function refreshRouteList(){
   let html="";
   G.routes.forEach((r,ri)=>{
+    if(r.npc) return;
     const ships=G.fleet.filter(f=>f.routeIdx===ri).length;
     html+=`<div class="routeItem"><span class="rname">${r.name}</span>
       <span style="color:#9ab4cc;font-size:11px">(${ships}船)</span><br>
@@ -2223,6 +2276,7 @@ function init(){
   const lis=PORTS[0];
   player.x=lis.x-40; player.z=lis.z; player.heading=Math.PI/2;
   const loaded=loadGame();
+  ensureNpcNetwork();
   if(TEST_MODE) G.gold=999999999;
   rebuildPlayerMesh();
   for(const f of G.fleet) initFleetMesh(f);
@@ -2256,6 +2310,7 @@ function tick(now){
   if(dt>5){ offlineProgress(dt); dt=0.016; }  // 后台切回
   dt=Math.min(dt,0.1);
   G.gt+=dt*TIME_SCALE;
+  updateNpcNetwork();
   updateWeather(dt);
   updateWind(dt);
   if(G.docked<0) updatePlayer(dt);
