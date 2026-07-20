@@ -110,6 +110,40 @@
   #help .dim { color:#9ab4cc; font-size:12px; line-height:1.6; margin-top:10px; }
 
   ::-webkit-scrollbar { width:8px; } ::-webkit-scrollbar-thumb { background:#3a5068; border-radius:4px; }
+
+  /* ---- 跟船提示 ---- */
+  #focusHint { position:absolute; left:50%; top:60px; transform:translateX(-50%);
+    padding:6px 18px; font-size:13px; color:#ffd98a; display:none; z-index:11; text-align:center; }
+
+  /* ---- 触控 ---- */
+  #cv, #chartCv { touch-action:none; }
+  #touchUI { display:none; }
+  #tRudder { position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+    width:230px; height:44px; border-radius:22px; z-index:12; }
+  #tKnob { position:absolute; left:50%; top:4px; width:36px; height:36px; margin-left:-18px;
+    border-radius:50%; background:linear-gradient(#f0e0a0,#c8a040); box-shadow:0 2px 6px #0008; }
+  #tSail { position:absolute; right:16px; bottom:80px; width:44px; height:150px;
+    border-radius:22px; z-index:12; overflow:hidden; }
+  #tSailFill { position:absolute; bottom:0; left:0; right:0; height:0%;
+    background:linear-gradient(#7ec8e3,#f5d67b); opacity:.65; }
+  #tSail span { position:absolute; left:50%; top:50%; translate:-50% -50%; font-size:14px; color:#fff; }
+  #tBtns { position:absolute; left:14px; bottom:86px; display:flex; flex-direction:column; gap:10px; z-index:12; }
+  #tBtns .tbtn { width:46px; height:46px; display:flex; align-items:center; justify-content:center;
+    font-size:20px; border-radius:50%; background:rgba(10,22,34,.8); }
+
+  /* ---- 窄屏 ---- */
+  @media (max-width:760px){
+    #topbar { gap:8px; padding:6px 10px; font-size:12px; top:6px; width:calc(100% - 12px);
+      justify-content:center; flex-wrap:wrap; }
+    #dash { transform:scale(0.72); transform-origin:left bottom; left:8px; bottom:64px; }
+    #minimapWrap { transform:scale(0.62); transform-origin:right bottom; right:8px; bottom:64px; }
+    #portPanel { width:96vw; max-height:80vh; }
+    #portBody { font-size:12px; padding:10px 10px 14px; }
+    table.trade th, table.trade td { padding:4px 4px; }
+    #chartUI { width:200px; font-size:12px; padding:10px 12px; }
+    #help { width:92vw; padding:18px 20px; font-size:13px; }
+    #dockHint { bottom:170px; }
+  }
 </style>
 </head>
 <body>
@@ -120,6 +154,7 @@
   <span id="uiDate">1560年1月1日</span>
   <span>🌬 <b id="uiWind">-</b></span>
   <span class="tbtn" id="btnChart">海图 (M)</span>
+  <span class="tbtn" id="btnQuality">画质:自动</span>
   <span class="tbtn" id="btnHelp">帮助 (H)</span>
 </div>
 
@@ -148,6 +183,18 @@
 
 <div id="dockHint" class="panel">按 <b>E</b> 进入港口</div>
 <div id="autopilotHint" class="panel">自动航行中 · 按 <b>X</b> 取消</div>
+<div id="focusHint" class="panel"></div>
+
+<div id="touchUI">
+  <div id="tRudder" class="panel"><div id="tKnob"></div></div>
+  <div id="tSail" class="panel"><div id="tSailFill"></div><span>帆</span></div>
+  <div id="tBtns">
+    <div class="tbtn" id="tMap">🗺</div>
+    <div class="tbtn" id="tDock">⚓</div>
+    <div class="tbtn" id="tNext">⛵</div>
+    <div class="tbtn" id="tTake">🎮</div>
+  </div>
+</div>
 <div id="toasts"></div>
 
 <div id="portPanel" class="panel">
@@ -184,12 +231,14 @@
 <div id="help" class="panel">
   <h2>⚓ 大航海时代 · 地中海</h2>
   <div><kbd>W</kbd><kbd>S</kbd> 升帆 / 收帆 <kbd>A</kbd><kbd>D</kbd> 左舵 / 右舵</div>
-  <div><kbd>鼠标拖动</kbd> 转动视角 <kbd>滚轮</kbd> 缩放</div>
+  <div><kbd>鼠标拖动</kbd> 转动视角 <kbd>滚轮</kbd> 缩放(触屏:单指转视角/双指缩放)</div>
   <div><kbd>E</kbd> 进港 / 离港 <kbd>M</kbd> 海图 <kbd>X</kbd> 取消自动航行</div>
+  <div><kbd>Tab</kbd> 轮流跟随商船(电影运镜) <kbd>C</kbd> 接管 / 交还操船</div>
   <div class="dim">
     风帆要诀:顺风与侧风最快;正顶风约30°内是死区,帆会失效,需走「之」字抢风。
-    低买高卖赚取差价;在海图中创建自动航线并到船坞购买商船,商队便会昼夜不停为你贸易——
-    关闭游戏后收益照常累积。
+    商船与你遵循同一套风与浪——跟随它们时可以看到真实的抢风走位。
+    在海图中创建自动航线并购买商船,商队便昼夜不停为你贸易,关闭游戏后收益照常累积。
+    天气会在晴、多云、雨之间流转,雨天风更急。
   </div>
   <div class="tbtn" style="text-align:center;margin-top:12px;" onclick="document.getElementById('help').style.display='none'">出航 ⛵</div>
 </div>
@@ -562,6 +611,18 @@ function waveH(x,z,t){
 }
 
 let oceanMesh, oceanUniforms, farSea;
+function buildCoastTex(){
+  const data=new Uint8Array(MASKW*MASKH*4);
+  for(let i=0;i<MASKW*MASKH;i++){
+    const d=DIST[i];
+    const v=d>0?255:Math.max(0,Math.round(255*(1+d/7)));  // 岸线=255 → 离岸7px=0
+    data[i*4]=v; data[i*4+1]=v; data[i*4+2]=v; data[i*4+3]=255;
+  }
+  const tex=new THREE.DataTexture(data,MASKW,MASKH,THREE.RGBAFormat);
+  tex.magFilter=THREE.LinearFilter; tex.minFilter=THREE.LinearFilter;
+  tex.needsUpdate=true;
+  return tex;
+}
 function buildOcean(){
   const geo=new THREE.PlaneGeometry(1300,1300,150,150);
   geo.rotateX(-Math.PI/2);
@@ -575,6 +636,8 @@ function buildOcean(){
     uSunI:{value:1},
     uDeep:{value:new THREE.Color(0x0a3350)},
     uShallow:{value:new THREE.Color(0x2b7795)},
+    uCoast:{value:buildCoastTex()},
+    uWorldSize:{value:new THREE.Vector2(WORLD_W,WORLD_H)},
   };
   const mat=new THREE.ShaderMaterial({
     uniforms:oceanUniforms,
@@ -598,6 +661,7 @@ function buildOcean(){
       uniform float uTime; uniform vec3 uSun; uniform vec3 uCam;
       uniform vec3 uFogColor; uniform float uFogDensity; uniform float uWaveScale;
       uniform float uSunI; uniform vec3 uDeep; uniform vec3 uShallow;
+      uniform sampler2D uCoast; uniform vec2 uWorldSize;
       varying vec3 vPos;
       void main(){
         vec2 p=vPos.xz;
@@ -623,6 +687,14 @@ function buildOcean(){
         float spec=pow(max(dot(R,V),0.0),140.0)*2.2*uSunI;
         col+=vec3(1.0,0.93,0.75)*spec;
         col=mix(col,uFogColor*0.9,fres*0.25);
+        // 近岸浅水色与碎浪泡沫
+        vec2 cuv=vPos.xz/uWorldSize;
+        float cst=texture2D(uCoast,cuv).r;
+        col=mix(col,uShallow*1.25,clamp(cst*1.2,0.0,1.0)*0.4);
+        float foamBand=smoothstep(0.55,0.95,
+          cst+0.10*sin(uTime*1.7+vPos.x*0.5+vPos.z*0.4)
+             +0.06*sin(uTime*2.6+vPos.z*1.1-vPos.x*0.7));
+        col=mix(col,vec3(0.93,0.96,0.95),foamBand*0.65*(0.4+0.6*uSunI));
         float d=length(uCam-vPos);
         float fog=1.0-exp(-pow(d*uFogDensity,2.0));
         col=mix(col,uFogColor,clamp(fog,0.0,1.0));
@@ -844,6 +916,164 @@ function setSailAmount(shipGroup,amt){
     s.mesh.position.y=s.baseY+s.h*(1-k)/2*0.9; // 收帆向上卷
   }
 }
+/* 帆受风:鼓帆程度随帆效,迎风死区抖帆(luffing) */
+function setSailVisual(shipGroup,amt,eff,windN,t){
+  setSailAmount(shipGroup,amt);
+  const luff=eff<0.12&&amt>0.1;
+  let bulge=0.35+0.85*windN*Math.max(eff,0.12);
+  for(let i=0;i<(shipGroup.userData.sails||[]).length;i++){
+    const s=shipGroup.userData.sails[i];
+    s.mesh.scale.z=luff?bulge*(0.35+0.3*Math.abs(Math.sin(t*20+i*2.1))):bulge;
+  }
+}
+
+/* ================= 环境特效:尾迹/云/雨/海鸥 ================= */
+let wakeSys, cloudGroup, rainSys, gulls=[];
+const WAKE_N=1500, WAKE_LIFE=2.6;
+function softDiscTex(){
+  const cv=document.createElement("canvas"); cv.width=cv.height=64;
+  const c=cv.getContext("2d");
+  const g=c.createRadialGradient(32,32,2,32,32,30);
+  g.addColorStop(0,"rgba(255,255,255,1)"); g.addColorStop(0.6,"rgba(255,255,255,.5)");
+  g.addColorStop(1,"rgba(255,255,255,0)");
+  c.fillStyle=g; c.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(cv);
+}
+function buildWake(){
+  const geo=new THREE.BufferGeometry();
+  const pos=new Float32Array(WAKE_N*3), birth=new Float32Array(WAKE_N), size=new Float32Array(WAKE_N);
+  birth.fill(-99);
+  geo.setAttribute("position",new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute("aBirth",new THREE.BufferAttribute(birth,1).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute("aSize",new THREE.BufferAttribute(size,1));
+  const mat=new THREE.ShaderMaterial({
+    uniforms:{uNow:{value:0},uTex:{value:softDiscTex()}},
+    transparent:true, depthWrite:false,
+    vertexShader:`
+      attribute float aBirth; attribute float aSize;
+      uniform float uNow; varying float vA;
+      void main(){
+        float age=uNow-aBirth;
+        vA=(age>=0.0&&age<${WAKE_LIFE.toFixed(1)})?(1.0-age/${WAKE_LIFE.toFixed(1)}):0.0;
+        vec4 mv=modelViewMatrix*vec4(position,1.0);
+        gl_PointSize=vA>0.0?aSize*(0.5+age*1.1)*(220.0/max(1.0,-mv.z)):0.0;
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader:`
+      uniform sampler2D uTex; varying float vA;
+      void main(){
+        vec4 t=texture2D(uTex,gl_PointCoord);
+        gl_FragColor=vec4(0.93,0.96,0.97,t.a*vA*0.55);
+      }`,
+  });
+  wakeSys={mesh:new THREE.Points(geo,mat),i:0,geo,mat};
+  wakeSys.mesh.frustumCulled=false;
+  scene.add(wakeSys.mesh);
+}
+function spawnWake(x,y,z,strength){
+  if(qualityLevel<1) return;
+  const g=wakeSys.geo, i=wakeSys.i;
+  g.attributes.position.setXYZ(i,x+(Math.random()-0.5)*1.6,y,z+(Math.random()-0.5)*1.6);
+  g.attributes.aBirth.setX(i,wind.t);
+  g.attributes.aSize.setX(i,(5+Math.random()*5)*strength);
+  g.attributes.position.needsUpdate=true;
+  g.attributes.aBirth.needsUpdate=true;
+  g.attributes.aSize.needsUpdate=true;
+  wakeSys.i=(i+1)%WAKE_N;
+}
+function buildClouds(){
+  cloudGroup=new THREE.Group();
+  const tex=(function(){
+    const cv=document.createElement("canvas"); cv.width=256; cv.height=128;
+    const c=cv.getContext("2d");
+    for(let i=0;i<7;i++){
+      const x=40+Math.random()*176, y=40+Math.random()*48, r=28+Math.random()*36;
+      const g=c.createRadialGradient(x,y,4,x,y,r);
+      g.addColorStop(0,"rgba(255,255,255,.85)"); g.addColorStop(1,"rgba(255,255,255,0)");
+      c.fillStyle=g; c.fillRect(0,0,256,128);
+    }
+    return new THREE.CanvasTexture(cv);
+  })();
+  for(let i=0;i<14;i++){
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,
+      opacity:0.5,depthWrite:false,fog:false}));
+    const s=260+Math.random()*300;
+    sp.scale.set(s,s*0.42,1);
+    sp.userData={ox:(Math.random()-0.5)*2200,oz:(Math.random()-0.5)*2200,y:170+Math.random()*90};
+    cloudGroup.add(sp);
+  }
+  scene.add(cloudGroup);
+}
+function buildRain(){
+  const N=600;
+  const geo=new THREE.BufferGeometry();
+  const pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){pos[i*3]=(Math.random()-0.5)*70;pos[i*3+1]=Math.random()*42;pos[i*3+2]=(Math.random()-0.5)*70;}
+  geo.setAttribute("position",new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
+  const cv=document.createElement("canvas"); cv.width=8; cv.height=32;
+  const c=cv.getContext("2d");
+  const g=c.createLinearGradient(0,0,0,32);
+  g.addColorStop(0,"rgba(200,220,240,0)"); g.addColorStop(0.5,"rgba(200,220,240,.8)"); g.addColorStop(1,"rgba(200,220,240,0)");
+  c.fillStyle=g; c.fillRect(2,0,4,32);
+  rainSys={mesh:new THREE.Points(geo,new THREE.PointsMaterial({map:new THREE.CanvasTexture(cv),
+    size:1.1,transparent:true,opacity:0,depthWrite:false})),geo,n:N};
+  rainSys.mesh.frustumCulled=false;
+  scene.add(rainSys.mesh);
+}
+function buildGulls(){
+  const cv=document.createElement("canvas"); cv.width=64; cv.height=32;
+  const c=cv.getContext("2d");
+  c.strokeStyle="#f5f5f0"; c.lineWidth=5; c.lineCap="round";
+  c.beginPath(); c.moveTo(6,22); c.quadraticCurveTo(20,8,32,18); c.quadraticCurveTo(44,8,58,22); c.stroke();
+  const tex=new THREE.CanvasTexture(cv);
+  for(let i=0;i<5;i++){
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false}));
+    sp.scale.set(2.2,1.1,1);
+    sp.userData={ph:i*1.257,r:9+i*2.3,w:0.55+i*0.08};
+    gulls.push(sp); scene.add(sp);
+  }
+}
+function updateEffects(dt,fx,fz){
+  const t=wind.t;
+  // 云:随风漂移,围绕镜头循环
+  const wx=Math.sin(wind.dir+Math.PI), wz=-Math.cos(wind.dir+Math.PI);
+  for(const sp of cloudGroup.children){
+    const u=sp.userData;
+    u.ox+=wx*wind.spd*0.55*dt; u.oz+=wz*wind.spd*0.55*dt;
+    if(Math.abs(u.ox)>1400)u.ox*=-0.95;
+    if(Math.abs(u.oz)>1400)u.oz*=-0.95;
+    sp.position.set(camera.position.x+u.ox,u.y,camera.position.z+u.oz);
+    sp.material.opacity=(0.16+weather.cloud*0.55)*(qualityLevel<1?0.6:1);
+  }
+  // 雨
+  const rOn=weather.rain>0.12&&qualityLevel>=1;
+  rainSys.mesh.visible=rOn;
+  if(rOn){
+    rainSys.mesh.material.opacity=weather.rain*0.65;
+    rainSys.mesh.position.set(fx,0,fz);
+    const p=rainSys.geo.attributes.position;
+    for(let i=0;i<rainSys.n;i++){
+      let y=p.getY(i)-52*dt;
+      if(y<0){y=42;p.setX(i,(Math.random()-0.5)*70);p.setZ(i,(Math.random()-0.5)*70);}
+      p.setY(i,y);
+    }
+    p.needsUpdate=true;
+  }
+  // 海鸥:近岸出现
+  const mx=Math.floor(fx/WORLD_W*MASKW), my=Math.floor(fz/WORLD_H*MASKH);
+  const nearCoast=mx>=0&&my>=0&&mx<MASKW&&my<MASKH&&DIST[my*MASKW+mx]>-9;
+  for(const sp of gulls){
+    sp.visible=nearCoast&&weather.rain<0.4;
+    if(sp.visible){
+      const u=sp.userData;
+      sp.position.set(
+        fx+Math.cos(t*u.w+u.ph)*u.r,
+        10+2.2*Math.sin(t*0.9+u.ph*3),
+        fz+Math.sin(t*u.w+u.ph)*u.r);
+    }
+  }
+  wakeSys.mat.uniforms.uNow.value=t;
+}
 /* ================= 游戏状态 ================= */
 const G={
   gold:6000, gt:0,                 // gt: 游戏秒
@@ -859,13 +1089,26 @@ const player={
   mesh:null, autopilot:null,       // {wp:[], i, targetPort}
 };
 const wind={dir:Math.PI*0.3, spd:8, t:0};
+const focus={type:"player", idx:-1};           // 跟随对象:player | fleet
+const weather={cloud:0.25, rain:0, state:0, t:99};
 
 function angNorm(a){ while(a>Math.PI)a-=Math.PI*2; while(a<-Math.PI)a+=Math.PI*2; return a; }
 
+function updateWeather(dt){
+  weather.t+=dt;
+  if(weather.t>75){ // 定期换天
+    weather.t=0;
+    const r=noise2(Math.floor(G.gt/9000),7.3);
+    weather.state=r<0.52?0:(r<0.82?1:2);   // 晴/多云/雨
+  }
+  const tg=[[0.22,0],[0.62,0],[0.95,1]][weather.state];
+  weather.cloud+=(tg[0]-weather.cloud)*Math.min(1,dt*0.08);
+  weather.rain+=(tg[1]-weather.rain)*Math.min(1,dt*0.1);
+}
 function updateWind(dt){
   wind.t+=dt;
   wind.dir+=Math.sin(wind.t*0.013+3)*0.0022*dt*60 + Math.sin(wind.t*0.0031)*0.0016*dt*60;
-  wind.spd=8+4.2*Math.sin(wind.t*0.009+1.3)+1.8*Math.sin(wind.t*0.031);
+  wind.spd=8+4.2*Math.sin(wind.t*0.009+1.3)+1.8*Math.sin(wind.t*0.031)+weather.rain*3;
   waveScale=0.45+wind.spd/13*0.75;
 }
 
@@ -880,102 +1123,110 @@ function sailPolar(twa){
 }
 
 const keys={};
-function updatePlayer(dt){
-  const cls=SHIP_CLASSES[G.shipClass];
-  // 输入
-  if(player.autopilot){ autopilotSteer(dt); }
-  else{
-    if(keys.KeyW) player.sail=Math.min(1,player.sail+dt*0.5);
-    if(keys.KeyS) player.sail=Math.max(0,player.sail-dt*0.5);
-    const rt=keys.KeyA?-1:keys.KeyD?1:0;
-    player.rudder+= (rt-player.rudder)*Math.min(1,dt*3.5);
-    if(!rt) player.rudder*= Math.max(0,1-dt*2.5);
-  }
-  // 风帆推进
-  const twa=angNorm(player.heading-wind.dir-Math.PI); // 风来向的反方向=风去向
-  const eff=sailPolar(angNorm(player.heading-(wind.dir+Math.PI)));
-  const target=cls.spd*player.sail*eff*(0.35+0.65*Math.min(wind.spd/11,1.3));
-  const k=target>player.speed?0.35:0.8;
-  player.speed+=(target-player.speed)*Math.min(1,dt*k);
-  // 转向(随速度增益)
-  player.heading+=player.rudder*cls.turn*dt*(0.25+0.75*Math.min(player.speed/cls.spd,1));
-  player.heading=angNorm(player.heading);
-  // 位移+侧漂
-  const fx=Math.sin(player.heading), fz=-Math.cos(player.heading);
-  const wx=Math.sin(wind.dir+Math.PI), wz=-Math.cos(wind.dir+Math.PI); // 风去向
-  let nx=player.x+(fx*player.speed+wx*wind.spd*0.028*player.sail)*dt;
-  let nz=player.z+(fz*player.speed+wz*wind.spd*0.028*player.sail)*dt;
-  // 碰撞:浅水/陆地
+let touchRudder=null, touchSail=null;
+
+/* ---- 通用风帆物理(玩家/商船共用) ---- */
+function sailStep(st,cfg,dt){
+  const eff=sailPolar(angNorm(st.heading-wind.dir));  // twa: 0=顶风
+  const target=cfg.spd*st.sail*eff*(0.35+0.65*Math.min(wind.spd/11,1.3));
+  const k=target>st.speed?0.35:0.8;
+  st.speed+=(target-st.speed)*Math.min(1,dt*k);
+  st.heading=angNorm(st.heading+st.rudder*cfg.turn*dt*(0.25+0.75*Math.min(st.speed/cfg.spd,1)));
+  const fx=Math.sin(st.heading), fz=-Math.cos(st.heading);
+  const wx=Math.sin(wind.dir+Math.PI), wz=-Math.cos(wind.dir+Math.PI);
+  let nx=st.x+(fx*st.speed+wx*wind.spd*0.028*st.sail)*dt;
+  let nz=st.z+(fz*st.speed+wz*wind.spd*0.028*st.sail)*dt;
+  st.grounded=false;
   if(terrainH(nx,nz)>-1.2){
-    if(player.speed>3) toast("触礁!注意浅滩");
-    player.speed*=0.2;
-    // 沿梯度推回深水
+    st.grounded=true; st.speed*=0.2;
     const e=6;
     const gx=terrainH(nx+e,nz)-terrainH(nx-e,nz), gz=terrainH(nx,nz+e)-terrainH(nx,nz-e);
     const gl=Math.hypot(gx,gz)||1;
-    nx=player.x-gx/gl*dt*8; nz=player.z-gz/gl*dt*8;
+    nx=st.x-gx/gl*dt*8; nz=st.z-gz/gl*dt*8;
   }
-  player.x=Math.max(5,Math.min(WORLD_W-5,nx));
-  player.z=Math.max(5,Math.min(WORLD_H-5,nz));
-  // 视觉:浮沉/纵横摇
-  const m=player.mesh;
-  if(m){
-    m.position.set(player.x,0,player.z);
-    const t=G.gt/TIME_SCALE; // 用现实秒相位
-    const s=2.2;
-    const hC=waveH(player.x,player.z,wind.t),
-          hF=waveH(player.x+fx*s,player.z+fz*s,wind.t),
-          hB=waveH(player.x-fx*s,player.z-fz*s,wind.t),
-          hL=waveH(player.x+fz*s,player.z-fx*s,wind.t),
-          hR=waveH(player.x-fz*s,player.z+fx*s,wind.t);
-    m.position.y=hC+0.12;
-    m.rotation.y=-player.heading;
-    const heel=Math.sin(angNorm(player.heading-(wind.dir+Math.PI)))*wind.spd*player.sail*0.010;
-    m.rotation.z=(hL-hR)/(2*s)*1.2+heel;
-    m.rotation.x=(hF-hB)/(2*s)*1.2;
-    m.rotation.order="YXZ";
-    setSailAmount(m,player.sail);
+  st.x=Math.max(5,Math.min(WORLD_W-5,nx));
+  st.z=Math.max(5,Math.min(WORLD_H-5,nz));
+  st.eff=eff;
+  return eff;
+}
+/* 通用自动抢风驾驶 */
+function autoSteer(st,tx,tz,ap,dt){
+  let want=Math.atan2(tx-st.x,-(tz-st.z));
+  const rel=angNorm(want-wind.dir);
+  if(Math.abs(rel)<0.62){                    // 顶风死区 → 走Z字
+    if(ap.tack===undefined) ap.tack=rel>=0?1:-1;
+    want=angNorm(wind.dir+ap.tack*0.72);
+    ap.tackT=(ap.tackT||0)+dt;
+    if(ap.tackT>26){ap.tack*=-1;ap.tackT=0;}
+  }else{ap.tack=undefined;ap.tackT=0;}
+  const err=angNorm(want-st.heading);
+  st.rudder=Math.max(-1,Math.min(1,err*2.2));
+  st.sail+=(1-st.sail)*Math.min(1,dt*0.8);
+}
+/* 浮沉/纵横摇/横倾/帆形/尾迹 —— 共用视觉 */
+function shipVisual(m,st,scale){
+  const fx=Math.sin(st.heading), fz=-Math.cos(st.heading);
+  const s=2.2*(scale||1);
+  const hC=waveH(st.x,st.z,wind.t),
+        hF=waveH(st.x+fx*s,st.z+fz*s,wind.t),
+        hB=waveH(st.x-fx*s,st.z-fz*s,wind.t),
+        hL=waveH(st.x+fz*s,st.z-fx*s,wind.t),
+        hR=waveH(st.x-fz*s,st.z+fx*s,wind.t);
+  m.position.set(st.x,hC+0.12,st.z);
+  m.rotation.order="YXZ";
+  m.rotation.y=-st.heading;
+  const heel=Math.sin(angNorm(st.heading-wind.dir))*wind.spd*st.sail*0.010;
+  m.rotation.z=(hL-hR)/(2*s)*1.2+heel;
+  m.rotation.x=(hF-hB)/(2*s)*1.2;
+  setSailVisual(m,st.sail,st.eff||0,Math.min(wind.spd/12,1),wind.t);
+  if(st.speed>2.2&&Math.random()<Math.min(1,st.speed*0.10))
+    spawnWake(st.x-fx*2.5*(scale||1),hC+0.05,st.z-fz*2.5*(scale||1),Math.min(1,st.speed/10));
+}
+
+function updatePlayer(dt){
+  const cls=SHIP_CLASSES[G.shipClass];
+  if(player.autopilot){ autopilotFollow(dt); }
+  else if(focus.type==="player"){
+    if(touchSail!==null) player.sail=touchSail;
+    if(keys.KeyW) player.sail=Math.min(1,player.sail+dt*0.5);
+    if(keys.KeyS) player.sail=Math.max(0,player.sail-dt*0.5);
+    if(touchRudder!==null){ player.rudder=touchRudder; }
+    else{
+      const rt=keys.KeyA?-1:keys.KeyD?1:0;
+      player.rudder+=(rt-player.rudder)*Math.min(1,dt*3.5);
+      if(!rt) player.rudder*=Math.max(0,1-dt*2.5);
+    }
   }
+  else { player.sail*=Math.max(0,1-dt*0.25); }  // 观影他船时,座舰缓缓收帆漂泊
+  const wasGrounded=player.grounded;
+  sailStep(player,cls,dt);
+  if(player.grounded&&!wasGrounded&&player.speed>1) toast("触礁!注意浅滩");
+  if(player.mesh) shipVisual(player.mesh,player,1);
   // 靠港检测
   let nearPort=-1;
   for(let i=0;i<PORTS.length;i++){
     const p=PORTS[i];
     if(Math.hypot(p.x-player.x,p.z-player.z)<32){nearPort=i;break;}
   }
-  ui.dockHint.style.display=(nearPort>=0&&G.docked<0)?"block":"none";
+  ui.dockHint.style.display=(nearPort>=0&&G.docked<0&&focus.type==="player")?"block":"none";
   player.nearPort=nearPort;
 }
 
-/* 自动航行:目标追踪+顶风走Z字 */
-function autopilotSteer(dt){
-  const ap=player.autopilot;
-  if(!ap) return;
+/* 玩家自动航行:沿A*路径 */
+function autopilotFollow(dt){
+  const ap=player.autopilot; if(!ap)return;
   const wp=ap.wp[ap.i];
-  const dx=wp[0]-player.x, dz=wp[1]-player.z;
-  const dist=Math.hypot(dx,dz);
-  if(dist<22){
+  if(Math.hypot(wp[0]-player.x,wp[1]-player.z)<22){
     ap.i++;
-    if(ap.i>=ap.wp.length){ // 抵达
-      if(ap.targetPort>=0&&Math.hypot(PORTS[ap.targetPort].x-player.x,PORTS[ap.targetPort].z-player.z)<40){
+    if(ap.i>=ap.wp.length){
+      if(ap.targetPort>=0&&Math.hypot(PORTS[ap.targetPort].x-player.x,PORTS[ap.targetPort].z-player.z)<40)
         dockAt(ap.targetPort);
-      }
-      cancelAutopilot(); return;
+      cancelAutopilot();
     }
     return;
   }
-  let want=Math.atan2(dx,-dz);
-  const windFrom=wind.dir;
-  const offWind=angNorm(want-windFrom-Math.PI); // 与风去向夹角... 直接用与风来向:
-  const rel=angNorm(want-windFrom);
-  if(Math.abs(rel)<0.62){ // 目标在死区内(±35°顶风) → 抢风
-    if(ap.tack===undefined) ap.tack=rel>=0?1:-1;
-    want=angNorm(windFrom+ap.tack*0.72);
-    ap.tackT=(ap.tackT||0)+dt;
-    if(ap.tackT>26){ap.tack*=-1;ap.tackT=0;} // 定时换舷
-  } else { ap.tack=undefined; ap.tackT=0; }
-  const err=angNorm(want-player.heading);
-  player.rudder=Math.max(-1,Math.min(1,err*2.2));
-  player.sail+= (1-player.sail)*Math.min(1,dt*0.8);
+  ap.st=ap.st||{};
+  autoSteer(player,wp[0],wp[1],ap.st,dt);
 }
 function cancelAutopilot(){
   player.autopilot=null;
@@ -991,21 +1242,60 @@ function startAutopilot(portIdx){
   toast("自动航行 → "+p.n);
 }
 
-/* ---- 相机 ---- */
-const cam={yaw:0, pitch:0.42, dist:22, free:0};
+/* ---- 相机:跟随/电影运镜 ---- */
+const cam={yaw:0, pitch:0.42, dist:22, free:0, shot:-1, shotT:99};
+function focusState(){
+  if(focus.type==="fleet"){
+    const f=G.fleet[focus.idx];
+    if(f){
+      if(f.phys) return f.phys;
+      const r=G.routes[f.routeIdx];
+      if(r&&r.paths&&r.paths[f.leg]){
+        const [x,z,hd]=pathPoint(r.paths[f.leg],Math.min(f.s,r.lens[f.leg]));
+        return {x,z,heading:hd,speed:TRADER.spd,sail:1};
+      }
+    }
+    focus.type="player"; focus.idx=-1; // 兜底
+  }
+  return player;
+}
+const SHOTS=[  // [基础方位(相对艏向), 俯仰, 距离, 偏航速率]
+  [Math.PI,      0.34, 30,  0.10],   // 环绕
+  [0.55,         0.11, 13,  0.02],   // 船艏侧
+  [Math.PI-0.25, 0.58, 38, -0.03],   // 艉高位
+  [Math.PI/2,    0.08, 12,  0.00],   // 侧舷贴浪
+];
 function updateCamera(dt){
-  if(cam.free>0) cam.free-=dt;
-  else cam.yaw+=angNorm(player.heading+Math.PI-cam.yaw)*Math.min(1,dt*1.2);
-  const cx=player.x+Math.sin(cam.yaw)*Math.cos(cam.pitch)*cam.dist;
-  const cz=player.z-Math.cos(cam.yaw)*Math.cos(cam.pitch)*cam.dist;
+  const fs=focusState();
+  const cinema=(focus.type==="fleet"&&!fleetControlled())||
+               (focus.type==="player"&&(player.autopilot||G.docked>=0));
+  if(cam.free>0){ cam.free-=dt; cam.shot=-1; }
+  else if(cinema){
+    cam.shotT+=dt;
+    if(cam.shot<0||cam.shotT>13){  // 切镜头
+      cam.shotT=0;
+      cam.shot=(cam.shot+1+Math.floor(Math.random()*2))%SHOTS.length;
+      const s=SHOTS[cam.shot];
+      cam.yaw=fs.heading+s[0]; cam.pitch=s[1]; cam.dist=s[2];
+    }
+    const s=SHOTS[cam.shot];
+    cam.yaw+=s[3]*dt;
+    cam.pitch+=(s[1]-cam.pitch)*Math.min(1,dt*0.5);
+    cam.dist+=(s[2]-cam.dist)*Math.min(1,dt*0.3);
+  }
+  else{
+    cam.shot=-1;
+    cam.yaw+=angNorm(fs.heading+Math.PI-cam.yaw)*Math.min(1,dt*1.2);
+  }
+  const cx=fs.x+Math.sin(cam.yaw)*Math.cos(cam.pitch)*cam.dist;
+  const cz=fs.z-Math.cos(cam.yaw)*Math.cos(cam.pitch)*cam.dist;
   const cy=Math.sin(cam.pitch)*cam.dist+1.5;
-  camera.position.set(cx,Math.max(cy,waveH(cx,cz,wind.t)+2),cz);
-  camera.lookAt(player.x,2.2,player.z);
+  camera.position.set(cx,Math.max(cy,waveH(cx,cz,wind.t)+2.2),cz);
+  camera.lookAt(fs.x,waveH(fs.x,fs.z,wind.t)+2.4,fs.z);
   skyMesh.position.set(camera.position.x,0,camera.position.z);
   farSea.position.set(camera.position.x,-0.5,camera.position.z);
-  // 海面网格跟随(吸附避免游动)
   const snap=8;
-  oceanMesh.position.set(Math.round(player.x/snap)*snap,0,Math.round(player.z/snap)*snap);
+  oceanMesh.position.set(Math.round(fs.x/snap)*snap,0,Math.round(fs.z/snap)*snap);
 }
 
 /* ---- 昼夜 ---- */
@@ -1017,22 +1307,31 @@ function updateSun(){
         sy=Math.max(elev,-0.18),
         sz=Math.sin(az)*Math.cos(Math.max(elev,-0.15)*1.2);
   const dayI=Math.max(0,Math.min(1,(elev+0.12)*2.4));
+  const dayE=dayI*Math.max(0.3,1-weather.cloud*0.45-weather.rain*0.2); // 天气减光
   sunLight.position.set(sx*100,Math.max(sy,0.02)*100,sz*100);
-  sunLight.intensity=0.25+dayI*0.95;
+  sunLight.intensity=0.25+dayE*0.95;
   ambLight.intensity=0.16+dayI*0.30;
   hemiLight.intensity=0.15+dayI*0.35;
   const dTop=new THREE.Color(0x3d74b0), nTop=new THREE.Color(0x0a1428);
   const dHor=new THREE.Color(0xa8c8d8), nHor=new THREE.Color(0x1a2a40);
   const sunset=Math.max(0,1-Math.abs(elev)*5)* (elev>-0.2?1:0);
   skyUniforms.uTop.value.copy(nTop).lerp(dTop,dayI);
-  skyUniforms.uHorizon.value.copy(nHor).lerp(dHor,dayI).lerp(new THREE.Color(0xe8a060),sunset*0.55);
+  skyUniforms.uHorizon.value.copy(nHor).lerp(dHor,dayI).lerp(new THREE.Color(0xe8a060),sunset*0.55*(1-weather.cloud));
+  // 阴天灰化
+  const grey=dayI>0.4?new THREE.Color(0x97a2aa):new THREE.Color(0x232b33);
+  skyUniforms.uTop.value.lerp(grey,weather.cloud*0.5);
+  skyUniforms.uHorizon.value.lerp(grey,weather.cloud*0.4);
   skyUniforms.uSunDir.value.set(sx,sy,sz);
   FOG_COLOR.copy(skyUniforms.uHorizon.value);
   oceanUniforms.uFogColor.value.copy(FOG_COLOR);
   oceanUniforms.uSun.value.set(sx,sy,sz);
-  oceanUniforms.uSunI.value=dayI;
+  oceanUniforms.uSunI.value=dayE;
   oceanUniforms.uWaveScale.value=waveScale;
-  if(scene.fog) scene.fog.color.copy(FOG_COLOR);
+  if(scene.fog){
+    scene.fog.color.copy(FOG_COLOR);
+    scene.fog.density=0.0026*(1+weather.rain*1.4+weather.cloud*0.3);
+    oceanUniforms.uFogDensity.value=scene.fog.density;
+  }
   const deep=new THREE.Color(0x0a3350), deepN=new THREE.Color(0x061524);
   oceanUniforms.uDeep.value.copy(deepN).lerp(deep,dayI);
   farSea.material.color.copy(oceanUniforms.uDeep.value);
@@ -1227,46 +1526,160 @@ function fleetTrade(f,atPortIdx,nextPortIdx,tGame){
   return netProfit;
 }
 
-function stepFleetShip(f,dt,tGame){
+function fleetArrive(f,r,tGame){
+  const nextLeg=(f.leg+1)%r.ports.length;
+  const arrivePort=r.ports[nextLeg];
+  const nextPort=r.ports[(nextLeg+1)%r.ports.length];
+  const gain=fleetTrade(f,arrivePort,nextPort,tGame);
+  r.profit=(r.profit||0)+gain; r.trips=(r.trips||0)+1;
+  f.leg=nextLeg; f.s=0; f.dockT=45; f.phys=null;
+}
+function stepFleetShip(f,dt,tGame){   // 低精度推进(离线/远距共用)
   const r=G.routes[f.routeIdx];
   if(!r||!r.paths){return;}
   if(f.dockT>0){f.dockT-=dt;return;}
-  const wp=routeLegPath(r,f.leg);
-  if(!wp){f.leg=0;return;}
+  if(!r.paths[f.leg]){f.leg=0;return;}
   f.s+=TRADER.spd*dt;
-  const L=r.lens[f.leg];
-  if(f.s>=L){ // 抵达下一港
-    const arrivePort=r.ports[(f.leg+1)%r.ports.length];
-    const nextLeg=(f.leg+1)%r.ports.length;
-    const nextPort=r.ports[(nextLeg+1)%r.ports.length];
-    const gain=fleetTrade(f,arrivePort,nextPort,tGame);
-    r.profit=(r.profit||0)+gain; r.trips=(r.trips||0)+1;
-    f.leg=nextLeg; f.s=0; f.dockT=45;
-  }
+  if(f.s>=r.lens[f.leg]) fleetArrive(f,r,tGame);
 }
-
+/* 位置沿路径投影(活体物理→路程),单调递增 */
+function projectOnPath(wp,x,z,sPrev){
+  let acc=0, best=sPrev, bd=1e9;
+  for(let i=1;i<wp.length;i++){
+    const ax=wp[i-1][0], az=wp[i-1][1], bx=wp[i][0], bz=wp[i][1];
+    const segL=Math.hypot(bx-ax,bz-az);
+    if(acc+segL>sPrev-60&&acc<sPrev+180){
+      const t=Math.max(0,Math.min(1,((x-ax)*(bx-ax)+(z-az)*(bz-az))/(segL*segL||1)));
+      const px=ax+(bx-ax)*t, pz=az+(bz-az)*t;
+      const d=Math.hypot(px-x,pz-z);
+      if(d<bd){bd=d;best=acc+segL*t;}
+    }
+    acc+=segL;
+  }
+  return Math.max(sPrev,best);
+}
+const FLEET_CFG={spd:TRADER.spd*1.3, turn:0.5};
+const LIVE_R=680;
 function updateFleet(dt){
-  for(const f of G.fleet){
-    stepFleetShip(f,dt,G.gt);
-    // 更新可见网格
-    if(f.mesh){
-      const r=G.routes[f.routeIdx];
-      if(r&&r.paths&&r.paths[f.leg]){
-        const [x,z,hd]=pathPoint(r.paths[f.leg],f.s);
-        const vis=Math.hypot(x-player.x,z-player.z)<900;
+  const fs=focusState();
+  G.fleet.forEach((f,idx)=>{
+    const r=G.routes[f.routeIdx];
+    if(!r||!r.paths||!r.paths[f.leg]){ if(f.mesh)f.mesh.visible=false; return; }
+    const L=r.lens[f.leg], wp=r.paths[f.leg];
+    const isFocus=focus.type==="fleet"&&focus.idx===idx;
+    // 在港停泊
+    if(f.dockT>0){
+      f.dockT-=dt; f.phys=null;
+      if(f.mesh){
+        const [x,z,hd]=pathPoint(wp,0);
+        const vis=isFocus||Math.hypot(x-fs.x,z-fs.z)<900;
         f.mesh.visible=vis;
         if(vis){
-          f.mesh.position.set(x,waveH(x,z,wind.t)+0.1,z);
-          f.mesh.rotation.y=-hd;
+          f.mesh.position.set(x,waveH(x,z,wind.t)+0.12,z);
+          f.mesh.rotation.set(0,-hd,0);
+          setSailVisual(f.mesh,0,0,0,wind.t);
         }
-      } else f.mesh.visible=false;
+      }
+      return;
     }
-  }
+    const [nx,nz]=pathPoint(wp,Math.min(f.s,L));
+    const live=isFocus||Math.hypot(nx-fs.x,nz-fs.z)<LIVE_R;
+    if(live){
+      if(!f.phys){
+        const [x,z,hd]=pathPoint(wp,Math.min(f.s,L));
+        f.phys={x,z,heading:hd,speed:TRADER.spd*0.7,sail:1,rudder:0};
+        f.ap={};
+      }
+      if(f.controlled){          // 玩家接管
+        if(touchSail!==null) f.phys.sail=touchSail;
+        if(keys.KeyW) f.phys.sail=Math.min(1,f.phys.sail+dt*0.5);
+        if(keys.KeyS) f.phys.sail=Math.max(0,f.phys.sail-dt*0.5);
+        if(touchRudder!==null) f.phys.rudder=touchRudder;
+        else{
+          const rt=keys.KeyA?-1:keys.KeyD?1:0;
+          f.phys.rudder+=(rt-f.phys.rudder)*Math.min(1,dt*3.5);
+          if(!rt) f.phys.rudder*=Math.max(0,1-dt*2.5);
+        }
+      }else{
+        const [tx,tz]=pathPoint(wp,Math.min(f.s+70,L));
+        autoSteer(f.phys,tx,tz,f.ap,dt);
+      }
+      sailStep(f.phys,FLEET_CFG,dt);
+      f.s=projectOnPath(wp,f.phys.x,f.phys.z,f.s);
+      if(f.mesh){ f.mesh.visible=true; shipVisual(f.mesh,f.phys,0.85); }
+    }else{
+      f.phys=null; f.controlled=false;
+      f.s+=TRADER.spd*dt;
+      if(f.mesh){
+        const vis=Math.hypot(nx-fs.x,nz-fs.z)<900;
+        f.mesh.visible=vis;
+        if(vis){
+          const [x,z,hd]=pathPoint(wp,Math.min(f.s,L));
+          f.mesh.position.set(x,waveH(x,z,wind.t)+0.12,z);
+          f.mesh.rotation.set(0,-hd,0);
+          setSailVisual(f.mesh,1,0.8,Math.min(wind.spd/12,1),wind.t);
+        }
+      }
+    }
+    if(f.s>=L){
+      const wasFocusPort=isFocus;
+      fleetArrive(f,r,G.gt);
+      if(wasFocusPort) toast(`${shipLabel(focus.idx)} 抵达 ${PORTS[r.ports[f.leg]].n},靠港交易中`);
+    }
+  });
 }
-function initFleetMesh(f){
-  f.mesh=buildShipMesh(1,true);
+function initFleetMesh(f,detailed){
+  if(f.mesh) scene.remove(f.mesh);
+  f.mesh=buildShipMesh(1,!detailed);
   f.mesh.scale.setScalar(0.85);
   scene.add(f.mesh);
+}
+/* ---- 跟船/接管 ---- */
+function shipLabel(i){ return "商船"+(i+1)+"号"; }
+function fleetControlled(){
+  return focus.type==="fleet"&&G.fleet[focus.idx]&&G.fleet[focus.idx].controlled;
+}
+function setFocus(type,idx){
+  if(focus.type==="fleet"&&G.fleet[focus.idx]){
+    G.fleet[focus.idx].controlled=false;
+    initFleetMesh(G.fleet[focus.idx],false);   // 还原简模
+  }
+  focus.type=type; focus.idx=idx;
+  cam.shot=-1; cam.shotT=99; cam.free=0;
+  if(type==="fleet"&&G.fleet[idx]) initFleetMesh(G.fleet[idx],true); // 细模
+  updateFocusHint();
+}
+function cycleFocus(){
+  const order=[["player",-1]];
+  G.fleet.forEach((f,i)=>{ if(G.routes[f.routeIdx]) order.push(["fleet",i]); });
+  let cur=0;
+  order.forEach(([t,i],k)=>{ if(t===focus.type&&i===focus.idx)cur=k; });
+  const [t,i]=order[(cur+1)%order.length];
+  setFocus(t,i);
+  toast(t==="player"?"回到座舰":"跟随 "+shipLabel(i));
+}
+function toggleControl(){
+  if(focus.type!=="fleet")return;
+  const f=G.fleet[focus.idx]; if(!f)return;
+  f.controlled=!f.controlled;
+  if(f.controlled&&!f.phys){
+    const r=G.routes[f.routeIdx];
+    if(r&&r.paths&&r.paths[f.leg]){
+      const [x,z,hd]=pathPoint(r.paths[f.leg],Math.min(f.s,r.lens[f.leg]));
+      f.phys={x,z,heading:hd,speed:TRADER.spd*0.7,sail:1,rudder:0}; f.ap={};
+    }
+  }
+  toast(f.controlled?"已接管"+shipLabel(focus.idx)+",WASD操船":"已交还舵手,商船继续航线");
+  updateFocusHint();
+}
+function updateFocusHint(){
+  if(focus.type==="player"){ ui.focusHint.style.display="none"; return; }
+  const f=G.fleet[focus.idx];
+  const r=f&&G.routes[f.routeIdx];
+  ui.focusHint.style.display="block";
+  ui.focusHint.innerHTML=f&&f.controlled
+    ? `🎮 操控中 <b>${shipLabel(focus.idx)}</b> · <b>C</b>交还 · <b>Tab</b>切换`
+    : `👁 跟随 <b>${shipLabel(focus.idx)}</b>${r?" · "+r.name:""} · <b>C</b>接管 · <b>Tab</b>切换`;
 }
 
 /* ================= 离线/后台 结算 ================= */
@@ -1399,15 +1812,16 @@ function drawChart(){
     c.fillStyle="#f5e8cc";
     c.fillText(p.n,px+6,py-6);
   }
-  // 商船
-  c.fillStyle="#8fd0ff";
-  for(const f of G.fleet){
-    const r=G.routes[f.routeIdx];
-    if(!r||!r.paths||!r.paths[f.leg])continue;
-    const [x,z]=pathPoint(r.paths[f.leg],f.s);
-    const [px,py]=w2c(x,z);
-    c.beginPath(); c.arc(px,py,3,0,7); c.fill();
-  }
+  // 商船(可点击跟随)
+  G.fleet.forEach((f,i)=>{
+    const pos=fleetPos(f);
+    if(!pos) return;
+    const [px,py]=w2c(pos[0],pos[1]);
+    const focused=focus.type==="fleet"&&focus.idx===i;
+    c.fillStyle=focused?"#ffd700":"#8fd0ff";
+    c.beginPath(); c.arc(px,py,focused?5:3.5,0,7); c.fill();
+    if(focused){ c.strokeStyle="#fff"; c.lineWidth=1.5; c.stroke(); }
+  });
   // 玩家
   {
     const [px,py]=w2c(player.x,player.z);
@@ -1437,6 +1851,44 @@ function chartPortAt(px,py){
     if(Math.hypot(cx-px,cy-py)<12) return i;
   }
   return -1;
+}
+function fleetPos(f){
+  if(f.phys) return [f.phys.x,f.phys.z];
+  const r=G.routes[f.routeIdx];
+  if(!r||!r.paths||!r.paths[f.leg]) return null;
+  const [x,z]=pathPoint(r.paths[f.leg],Math.min(f.s,r.lens[f.leg]));
+  return [x,z];
+}
+function chartTapAt(cx,cy){
+  ui.portPop.style.display="none";
+  const pi=chartPortAt(cx,cy);
+  if(pi>=0){
+    if(chart.editing){ // 编辑模式:加入航线
+      chart.editing.ports.push(pi);
+      ui.editPorts.textContent=chart.editing.ports.map(i=>PORTS[i].n).join(" → ");
+      return;
+    }
+    const p=PORTS[pi];
+    ui.portPop.innerHTML=`<div class="pp-name">${p.n}</div>
+      <div style="color:#9ab4cc;font-size:12px">特产:${p.prod.map(g=>GOOD_BY_ID[g].n).join("、")}<br>紧缺:${p.need.map(g=>GOOD_BY_ID[g].n).join("、")}</div>
+      <div class="ppbtn" id="ppGo">⛵ 自动航行至此</div>`;
+    ui.portPop.style.left=Math.min(cx+12,innerWidth-190)+"px";
+    ui.portPop.style.top=Math.min(cy+8,innerHeight-160)+"px";
+    ui.portPop.style.display="block";
+    $("ppGo").onclick=()=>{ closeChart(); startAutopilot(pi); };
+    return;
+  }
+  // 点商船 → 跟随观看
+  for(let i=0;i<G.fleet.length;i++){
+    const pos=fleetPos(G.fleet[i]);
+    if(!pos) continue;
+    const [sx,sy]=w2c(pos[0],pos[1]);
+    if(Math.hypot(sx-cx,sy-cy)<12){
+      setFocus("fleet",i); closeChart();
+      toast("跟随 "+shipLabel(i)+" · C接管 · Tab切换");
+      return;
+    }
+  }
 }
 function openChart(){
   chartOpen=true;
@@ -1494,10 +1946,9 @@ function drawMinimap(){
   for(const p of PORTS){c.fillRect(p.x*sx-1,p.z*sy-1,2,2);}
   c.fillStyle="#8fd0ff";
   for(const f of G.fleet){
-    const r=G.routes[f.routeIdx];
-    if(!r||!r.paths||!r.paths[f.leg])continue;
-    const [x,z]=pathPoint(r.paths[f.leg],f.s);
-    c.fillRect(x*sx-1.5,z*sy-1.5,3,3);
+    const pos=fleetPos(f);
+    if(!pos) continue;
+    c.fillRect(pos[0]*sx-1.5,pos[1]*sy-1.5,3,3);
   }
   c.save();
   c.translate(player.x*sx,player.z*sy); c.rotate(player.heading);
@@ -1509,7 +1960,10 @@ function drawMinimap(){
 /* ================= HUD ================= */
 function updateHUDStatic(){
   ui.uiGold.textContent=fmt(G.gold);
-  ui.uiCargoLine.textContent=`载货 ${cargoCount(G.cargo)}/${SHIP_CLASSES[G.shipClass].cap}`;
+  if(focus.type==="fleet"&&G.fleet[focus.idx])
+    ui.uiCargoLine.textContent=`${shipLabel(focus.idx)} 载货 ${cargoCount(G.fleet[focus.idx].cargo)}/${TRADER.cap}`;
+  else
+    ui.uiCargoLine.textContent=`载货 ${cargoCount(G.cargo)}/${SHIP_CLASSES[G.shipClass].cap}`;
 }
 const DIRS8=["北","东北","东","东南","南","西南","西","西北"];
 function updateHUD(){
@@ -1517,13 +1971,14 @@ function updateHUD(){
   ui.uiDate.textContent=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
   const wd=((wind.dir%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
   ui.uiWind.textContent=`${DIRS8[Math.round(wd/(Math.PI/4))%8]}风 ${wind.spd.toFixed(1)}节`;
-  ui.uiSpeed.textContent=(player.speed*1.35).toFixed(1);
-  ui.uiHeading.textContent=Math.round(((player.heading*180/Math.PI)%360+360)%360);
-  ui.uiSail.textContent=Math.round(player.sail*100);
-  ui.sailbar.style.width=(player.sail*100)+"%";
+  const fs=focusState();
+  ui.uiSpeed.textContent=(fs.speed*1.35).toFixed(1);
+  ui.uiHeading.textContent=Math.round(((fs.heading*180/Math.PI)%360+360)%360);
+  ui.uiSail.textContent=Math.round((fs.sail??0)*100);
+  ui.sailbar.style.width=((fs.sail??0)*100)+"%";
   // 罗盘:旋转使北对准世界,风箭头=风来向
   ui.compassRose.style.transform=`rotate(${-cam.yaw}rad)`;
-  ui.headingNeedle.style.transform=`rotate(${player.heading-cam.yaw}rad)`;
+  ui.headingNeedle.style.transform=`rotate(${fs.heading-cam.yaw}rad)`;
   ui.windArrow.style.transform=`rotate(${wind.dir-cam.yaw+Math.PI}rad)`;
   updateHUDStatic();
 }
@@ -1535,8 +1990,10 @@ function bindInput(){
     if(e.code==="KeyM"){ chartOpen?closeChart():openChart(); }
     if(e.code==="KeyH"){ const h=$("help"); h.style.display=h.style.display==="none"?"block":"none"; }
     if(e.code==="KeyX"){ cancelAutopilot(); }
+    if(e.code==="Tab"){ e.preventDefault(); cycleFocus(); }
+    if(e.code==="KeyC"){ toggleControl(); }
     if(e.code==="Escape"){ if(chartOpen)closeChart(); }
-    if(e.code==="KeyE"){
+    if(e.code==="KeyE"&&focus.type==="player"){
       if(G.docked>=0) undock();
       else if(player.nearPort>=0) dockAt(player.nearPort);
     }
@@ -1571,23 +2028,7 @@ function bindInput(){
     const wasDrag=chart.drag&&chart.drag[2]>6;
     chart.drag=null;
     if(wasDrag)return;
-    const pi=chartPortAt(e.clientX,e.clientY);
-    ui.portPop.style.display="none";
-    if(pi<0)return;
-    if(chart.editing){ // 编辑模式:加入航线
-      chart.editing.ports.push(pi);
-      ui.editPorts.textContent=chart.editing.ports.map(i=>PORTS[i].n).join(" → ");
-      return;
-    }
-    // 弹出港口菜单
-    const p=PORTS[pi];
-    ui.portPop.innerHTML=`<div class="pp-name">${p.n}</div>
-      <div style="color:#9ab4cc;font-size:12px">特产:${p.prod.map(g=>GOOD_BY_ID[g].n).join("、")}<br>紧缺:${p.need.map(g=>GOOD_BY_ID[g].n).join("、")}</div>
-      <div class="ppbtn" id="ppGo">⛵ 自动航行至此</div>`;
-    ui.portPop.style.left=Math.min(e.clientX+12,innerWidth-190)+"px";
-    ui.portPop.style.top=Math.min(e.clientY+8,innerHeight-160)+"px";
-    ui.portPop.style.display="block";
-    $("ppGo").onclick=()=>{ closeChart(); startAutopilot(pi); };
+    chartTapAt(e.clientX,e.clientY);
   });
   ccv.addEventListener("wheel",e=>{
     const [wx,wy]=c2w(e.clientX,e.clientY);
@@ -1619,6 +2060,132 @@ function bindInput(){
   };
 }
 
+/* ================= 触控与画质 ================= */
+let qualityLevel=1, qualityMode="auto", fpsAvg=60;
+function applyQuality(l){
+  qualityLevel=l;
+  renderer.setPixelRatio(l?Math.min(devicePixelRatio,1.6):1);
+}
+function cycleQuality(){
+  qualityMode=qualityMode==="auto"?"high":qualityMode==="high"?"low":"auto";
+  if(qualityMode==="high")applyQuality(1);
+  else if(qualityMode==="low")applyQuality(0);
+  else applyQuality(1);
+  $("btnQuality").textContent="画质:"+(qualityMode==="auto"?"自动":qualityMode==="high"?"高":"低");
+}
+function qualityTick(dt){
+  fpsAvg=fpsAvg*0.96+(1/Math.max(dt,0.001))*0.04;
+  if(qualityMode==="auto"&&qualityLevel===1&&fpsAvg<38) applyQuality(0);
+}
+
+function bindTouch(){
+  const isTouch=("ontouchstart" in window)||navigator.maxTouchPoints>0;
+  if(!isTouch) return;
+  $("touchUI").style.display="block";
+  // 画布:单指转视角,双指捏合缩放
+  const cv=$("cv");
+  let t1=null, pinch=null;
+  cv.addEventListener("touchstart",e=>{
+    e.preventDefault();
+    if(e.touches.length===1){ t1=[e.touches[0].clientX,e.touches[0].clientY]; }
+    else if(e.touches.length===2){
+      t1=null;
+      pinch=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                       e.touches[0].clientY-e.touches[1].clientY);
+    }
+  },{passive:false});
+  cv.addEventListener("touchmove",e=>{
+    e.preventDefault();
+    if(e.touches.length===1&&t1){
+      cam.yaw+=(e.touches[0].clientX-t1[0])*0.006;
+      cam.pitch=Math.max(0.08,Math.min(1.25,cam.pitch+(e.touches[0].clientY-t1[1])*0.005));
+      cam.free=4;
+      t1=[e.touches[0].clientX,e.touches[0].clientY];
+    }else if(e.touches.length===2&&pinch){
+      const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                         e.touches[0].clientY-e.touches[1].clientY);
+      cam.dist=Math.max(9,Math.min(90,cam.dist*pinch/d));
+      pinch=d;
+    }
+  },{passive:false});
+  cv.addEventListener("touchend",()=>{t1=null;pinch=null;});
+  // 舵轮滑条
+  const tr=$("tRudder"), knob=$("tKnob");
+  const setRudder=(clientX)=>{
+    const rect=tr.getBoundingClientRect();
+    let v=((clientX-rect.left)/rect.width-0.5)*2;
+    v=Math.max(-1,Math.min(1,v));
+    touchRudder=v;
+    knob.style.left=(50+v*40)+"%";
+  };
+  tr.addEventListener("touchstart",e=>{e.preventDefault();setRudder(e.touches[0].clientX);},{passive:false});
+  tr.addEventListener("touchmove",e=>{e.preventDefault();setRudder(e.touches[0].clientX);},{passive:false});
+  tr.addEventListener("touchend",e=>{e.preventDefault();touchRudder=null;knob.style.left="50%";},{passive:false});
+  // 帆量滑条
+  const ts=$("tSail"), fill=$("tSailFill");
+  const setSail=(clientY)=>{
+    const rect=ts.getBoundingClientRect();
+    let v=1-(clientY-rect.top)/rect.height;
+    v=Math.max(0,Math.min(1,v));
+    touchSail=v;
+    fill.style.height=(v*100)+"%";
+  };
+  ts.addEventListener("touchstart",e=>{e.preventDefault();setSail(e.touches[0].clientY);},{passive:false});
+  ts.addEventListener("touchmove",e=>{e.preventDefault();setSail(e.touches[0].clientY);},{passive:false});
+  ts.addEventListener("touchend",e=>{
+    e.preventDefault();
+    // 定格帆量后释放,让键盘也可继续调整
+    if(touchSail!==null){
+      if(fleetControlled()) G.fleet[focus.idx].phys.sail=touchSail;
+      else player.sail=touchSail;
+    }
+    touchSail=null;
+  },{passive:false});
+  // 按钮
+  $("tMap").addEventListener("touchstart",e=>{e.preventDefault();chartOpen?closeChart():openChart();},{passive:false});
+  $("tDock").addEventListener("touchstart",e=>{e.preventDefault();
+    if(focus.type!=="player")return;
+    if(G.docked>=0)undock(); else if(player.nearPort>=0)dockAt(player.nearPort);
+  },{passive:false});
+  $("tNext").addEventListener("touchstart",e=>{e.preventDefault();cycleFocus();},{passive:false});
+  $("tTake").addEventListener("touchstart",e=>{e.preventDefault();toggleControl();},{passive:false});
+  // 海图触控:单指拖动/点按,双指缩放
+  const ccv=ui.chartCv;
+  let cT=null, cPinch=null, cMoved=0;
+  ccv.addEventListener("touchstart",e=>{
+    e.preventDefault();
+    if(e.touches.length===1){cT=[e.touches[0].clientX,e.touches[0].clientY];cMoved=0;}
+    else if(e.touches.length===2){
+      cT=null;
+      cPinch=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                        e.touches[0].clientY-e.touches[1].clientY);
+    }
+  },{passive:false});
+  ccv.addEventListener("touchmove",e=>{
+    e.preventDefault();
+    if(e.touches.length===1&&cT){
+      chart.x-=(e.touches[0].clientX-cT[0])/chart.zoom;
+      chart.y-=(e.touches[0].clientY-cT[1])/chart.zoom;
+      cMoved+=Math.abs(e.touches[0].clientX-cT[0])+Math.abs(e.touches[0].clientY-cT[1]);
+      cT=[e.touches[0].clientX,e.touches[0].clientY];
+    }else if(e.touches.length===2&&cPinch){
+      const mx=(e.touches[0].clientX+e.touches[1].clientX)/2,
+            my=(e.touches[0].clientY+e.touches[1].clientY)/2;
+      const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                         e.touches[0].clientY-e.touches[1].clientY);
+      const [wx,wy]=c2w(mx,my);
+      chart.zoom=Math.max(0.06,Math.min(2.5,chart.zoom*d/cPinch));
+      chart.x=wx-mx/chart.zoom; chart.y=wy-my/chart.zoom;
+      cPinch=d;
+    }
+  },{passive:false});
+  ccv.addEventListener("touchend",e=>{
+    e.preventDefault();
+    if(cT&&cMoved<8) chartTapAt(cT[0],cT[1]);
+    cT=null; cPinch=null;
+  },{passive:false});
+}
+
 /* ================= 初始化与主循环 ================= */
 function rebuildPlayerMesh(){
   if(player.mesh) scene.remove(player.mesh);
@@ -1644,10 +2211,11 @@ function init(){
   ambLight=new THREE.AmbientLight(0x8aa8c0,0.4); scene.add(ambLight);
   hemiLight=new THREE.HemisphereLight(0xbfd8e8,0x3a5040,0.4); scene.add(hemiLight);
   buildSky(); buildOcean(); buildTerrain(); buildPorts();
+  buildWake(); buildClouds(); buildRain(); buildGulls();
 
   // UI引用
   ["toasts","portPanel","portName","portBody","chartWrap","chartCv","portPop","routeList",
-   "editBox","editPorts","dockHint","autopilotHint","minimap","sailbar","compassRose",
+   "editBox","editPorts","dockHint","autopilotHint","focusHint","minimap","sailbar","compassRose",
    "headingNeedle","windArrow","uiGold","uiDate","uiWind","uiSpeed","uiHeading","uiSail","uiCargoLine"]
    .forEach(id=>ui[id]=$(id));
 
@@ -1671,6 +2239,8 @@ function init(){
   }
   cam.yaw=player.heading+Math.PI;
   bindInput();
+  bindTouch();
+  $("btnQuality").onclick=cycleQuality;
   addEventListener("resize",()=>{
     renderer.setSize(innerWidth,innerHeight);
     camera.aspect=innerWidth/innerHeight;
@@ -1686,11 +2256,15 @@ function tick(now){
   if(dt>5){ offlineProgress(dt); dt=0.016; }  // 后台切回
   dt=Math.min(dt,0.1);
   G.gt+=dt*TIME_SCALE;
+  updateWeather(dt);
   updateWind(dt);
   if(G.docked<0) updatePlayer(dt);
   updateFleet(dt);
   updateCamera(dt);
   updateSun();
+  const efs=focusState();
+  updateEffects(dt,efs.x,efs.z);
+  qualityTick(dt);
   oceanUniforms.uTime.value=wind.t;
   oceanUniforms.uCam.value.copy(camera.position);
   updateHUD();
