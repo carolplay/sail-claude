@@ -239,6 +239,9 @@
     商船与你遵循同一套风与浪——跟随它们时可以看到真实的抢风走位。
     在海图中创建自动航线并购买商船,商队便昼夜不停为你贸易,关闭游戏后收益照常累积。
     天气会在晴、多云、雨之间流转,雨天风更急。
+    <br><br><b style="color:#ffca8a">远洋探索:</b>海图西侧笼罩迷雾,金色「?」标记着未知的大西洋港口——
+    亲自驾船驶入迷雾、抵近即可点亮它们,并获得发现奖励。远洋港出产象牙、金砂、龙涎香、染料等
+    只有那里才有的高价货,运回地中海可获厚利。未发现的港口无法设为自动航线目标,唯有先亲历。
   </div>
   <div class="tbtn" style="text-align:center;margin-top:12px;" onclick="document.getElementById('help').style.display='none'">出航 ⛵</div>
 </div>
@@ -247,10 +250,10 @@
 <script>
 "use strict";
 /* ================= 常量与地理数据 ================= */
-const LON0=-12, LON1=40, LAT0=29, LAT1=56;
+const LON0=-30, LON1=40, LAT0=20, LAT1=56;   // 3.0 扩展至大西洋(西至亚速尔,南至西撒)
 const SX=150, SZ=195;
-const WORLD_W=(LON1-LON0)*SX, WORLD_H=(LAT1-LAT0)*SZ;   // 7800 x 5265
-const MASKW=1024, MASKH=Math.round(MASKW*WORLD_H/WORLD_W); // 1024 x 691
+const WORLD_W=(LON1-LON0)*SX, WORLD_H=(LAT1-LAT0)*SZ;   // 10500 x 7020
+const MASKW=1200, MASKH=Math.round(MASKW*WORLD_H/WORLD_W); // 1200 x 802
 const TIME_SCALE=120;            // 1现实秒 = 2游戏分钟
 const START_DATE=new Date(1560,0,1).getTime();
 const TEST_MODE=true;            // 测试:金币无限(改为false恢复正常)
@@ -281,7 +284,9 @@ const POLYS=[
 [33.0,46.0],[36.0,45.6],[40.5,46.2],[40.5,55.9]],
 // 安纳托利亚+黎凡特+北非(经底边闭合)
 [[29.2,41.15],[30.5,41.2],[32.0,41.8],[34.0,42.0],[36.0,41.7],[38.0,41.0],[40.5,41.2],
-[40.5,28.5],[-11.5,28.5],[-11.5,30.5],[-9.8,31.8],[-9.5,33.2],[-8.5,33.9],[-6.8,34.6],
+[40.5,20],[-16.5,20],[-17.0,20.9],[-16.0,23.0],[-15.9,23.7],[-14.5,26.0],[-13.2,27.7],
+[-12.9,28.0],[-11.4,28.4],[-10.0,29.3],[-9.8,30.4],[-9.6,31.4],[-8.7,32.9],[-7.6,33.6],
+[-6.9,34.1],[-6.1,35.1],
 [-5.9,35.75],[-5.35,35.85],[-4.6,35.2],[-3.6,35.2],[-2.5,35.1],[-1.5,35.5],[-0.5,35.75],
 [0.5,36.4],[1.8,36.55],[3.1,36.75],[4.8,36.85],[6.5,37.05],[7.8,36.9],[8.7,36.95],[9.5,37.25],
 [10.2,37.1],[10.35,36.75],[10.0,36.5],[10.55,36.0],[11.05,35.3],[10.6,34.6],[10.1,33.85],
@@ -315,6 +320,19 @@ const POLYS=[
 [[23.5,35.3],[24.5,35.4],[25.7,35.35],[26.3,35.2],[25.9,34.95],[24.7,34.95],[23.55,35.1]],
 // 塞浦路斯
 [[32.3,35.15],[33.3,35.35],[34.55,35.65],[34.05,34.95],[33.0,34.65],[32.4,34.7]],
+// ---- 3.0 大西洋岛屿 ----
+// 马德拉
+[[-17.28,32.62],[-16.9,32.78],[-16.6,32.84],[-16.62,32.62],[-17.05,32.55]],
+// 加那利·大加那利
+[[-15.82,28.16],[-15.34,28.17],[-15.35,27.72],[-15.75,27.78]],
+// 加那利·特内里费
+[[-16.95,28.37],[-16.32,28.02],[-16.1,28.28],[-16.6,28.6]],
+// 加那利·兰萨罗特
+[[-13.9,28.86],[-13.45,29.22],[-13.4,28.95],[-13.75,28.8]],
+// 亚速尔·圣米格尔
+[[-25.88,37.72],[-25.15,37.86],[-25.1,37.78],[-25.85,37.58]],
+// 亚速尔·法亚尔
+[[-28.85,38.62],[-28.55,38.63],[-28.55,38.5],[-28.85,38.5]],
 ];
 /* 需保持通航的海峡:[lon,lat]折线,栅格化后强制疏浚为水 */
 const CHANNELS=[
@@ -340,12 +358,17 @@ const GOODS=[
  {id:"glass", n:"玻璃器皿",base:260},
  {id:"silk",  n:"丝绸",   base:350},
  {id:"spice", n:"香料",   base:430},
+ // ---- 3.0 远洋高价货(仅大西洋远港出产)----
+ {id:"dye",       n:"染料",   base:210, far:true},
+ {id:"ambergris", n:"龙涎香", base:680, far:true},
+ {id:"ivory",     n:"象牙",   base:560, far:true},
+ {id:"gold",      n:"金砂",   base:900, far:true},
 ];
 const GOOD_BY_ID={}; GOODS.forEach(g=>GOOD_BY_ID[g.id]=g);
 
 /* ---- 港口:名称/坐标/特产(便宜)/紧缺(高价) ---- */
 const PORTS=[
- {n:"里斯本",   lon:-9.55,lat:38.68, prod:["salt","wine"],       need:["silk","spice"]},
+ {n:"里斯本",   lon:-9.55,lat:38.68, prod:["salt","wine"],       need:["silk","spice","gold","ivory"]},
  {n:"波尔图",   lon:-9.1, lat:41.14, prod:["wine","wood"],       need:["glass","pottery"]},
  {n:"加的斯",   lon:-6.6, lat:36.55, prod:["wine","leather"],    need:["spice","cotton"]},
  {n:"伦敦",     lon:1.25, lat:51.55, prod:["wool","wood"],       need:["wine","spice","sugar"]},
@@ -354,8 +377,8 @@ const PORTS=[
  {n:"巴塞罗那", lon:2.3,  lat:41.25, prod:["leather","grain"],   need:["spice","glass"]},
  {n:"帕尔马",   lon:2.6,  lat:39.3,  prod:["salt","oil"],        need:["wood","grain"]},
  {n:"马赛",     lon:5.3,  lat:43.1,  prod:["grain","wine"],      need:["spice","silk"]},
- {n:"热那亚",   lon:8.85, lat:44.2,  prod:["marble","glass"],    need:["spice","cotton"]},
- {n:"威尼斯",   lon:12.45,lat:45.15, prod:["glass","pottery"],   need:["spice","cotton","wool"]},
+ {n:"热那亚",   lon:8.85, lat:44.2,  prod:["marble","glass"],    need:["spice","cotton","dye","gold"]},
+ {n:"威尼斯",   lon:12.45,lat:45.15, prod:["glass","pottery"],   need:["spice","cotton","wool","ivory","ambergris"]},
  {n:"那不勒斯", lon:14.15,lat:40.6,  prod:["marble","oil"],      need:["wool","glass"]},
  {n:"巴勒莫",   lon:13.35,lat:38.4,  prod:["grain","oil"],       need:["silk","pottery"]},
  {n:"拉古萨",   lon:18.5, lat:42.35, prod:["wood","leather"],    need:["glass","sugar"]},
@@ -368,6 +391,13 @@ const PORTS=[
  {n:"阿尔及尔", lon:3.1,  lat:36.95, prod:["leather","wool"],    need:["grain","pottery"]},
  {n:"的黎波里", lon:13.2, lat:33.1,  prod:["salt","spice"],      need:["grain","wood"]},
  {n:"休达",     lon:-5.2, lat:36.0,  prod:["salt","sugar"],      need:["grain","leather"]},
+ // ---- 3.0 大西洋远洋港(far=初始未探索)----
+ {n:"萨菲",     lon:-9.24,lat:32.3,  prod:["salt","pottery"],    need:["wood","wine","glass"]},
+ {n:"阿加迪尔", lon:-9.62,lat:30.42, prod:["leather","oil"],     need:["wood","silk","grain"]},
+ {n:"丰沙尔",   lon:-16.9,lat:32.68, prod:["sugar","wine"],      need:["wood","grain","cotton"], far:true},
+ {n:"拉斯帕尔马斯",lon:-15.42,lat:28.13,prod:["dye","sugar"],    need:["wood","wine","wool","grain"], far:true},
+ {n:"阿尔金",   lon:-16.7,lat:20.9,  prod:["gold","ivory"],      need:["salt","wood","wine","cotton"], far:true},
+ {n:"蓬塔德尔加达",lon:-25.5,lat:37.74,prod:["ambergris","wine"],need:["wood","grain","spice","glass"], far:true},
 ];
 
 /* ---- 船级 ---- */
@@ -401,6 +431,68 @@ function priceAt(portIdx,goodId,gameDay){
   else f=1+0.18*(hash1(p.n+goodId)-0.5)*2;
   const wave=1+0.12*Math.sin(gameDay*0.7+hash1(goodId+p.n)*20);
   return Math.max(5, Math.round(g.base*f*wave));
+}
+
+/* ================= 探索点亮:迷雾栅格 + 港口发现 ================= */
+const EXW=170, EXH=Math.round(EXW*(LAT1-LAT0)*SZ/((LON1-LON0)*SX)); // 探索栅格
+let EXPLORED;                       // Uint8Array EXW*EXH 1=已探索
+const DISCOVER_REWARD=4000;
+function initExploration(){
+  EXPLORED=new Uint8Array(EXW*EXH);
+  // 已知港口(非far)周边点亮为初始已知海域
+  for(let i=0;i<PORTS.length;i++){
+    if(PORTS[i].far) continue;
+    revealAt(PORTS[i].x,PORTS[i].z,470);
+  }
+}
+function revealAt(x,z,rPx){
+  const cx=x/WORLD_W*EXW, cy=z/WORLD_H*EXH;
+  const rx=rPx/WORLD_W*EXW, ry=rPx/WORLD_H*EXH;
+  const x0=Math.max(0,Math.floor(cx-rx)), x1=Math.min(EXW-1,Math.ceil(cx+rx));
+  const y0=Math.max(0,Math.floor(cy-ry)), y1=Math.min(EXH-1,Math.ceil(cy+ry));
+  for(let y=y0;y<=y1;y++)for(let x2=x0;x2<=x1;x2++){
+    const dx=(x2-cx)/rx, dy=(y-cy)/ry;
+    if(dx*dx+dy*dy<=1) EXPLORED[y*EXW+x2]=1;
+  }
+}
+function isExplored(x,z){
+  const cx=Math.floor(x/WORLD_W*EXW), cy=Math.floor(z/WORLD_H*EXH);
+  if(cx<0||cy<0||cx>=EXW||cy>=EXH) return false;
+  return EXPLORED[cy*EXW+cx]===1;
+}
+function portDiscovered(i){ return !PORTS[i].far || !!G.discovered[i]; }
+function updateExploration(dt){
+  revealAt(player.x,player.z,340);
+  for(let i=0;i<PORTS.length;i++){
+    if(PORTS[i].far && !G.discovered[i] &&
+       Math.hypot(PORTS[i].x-player.x,PORTS[i].z-player.z)<160){
+      G.discovered[i]=true;
+      G.gold+=DISCOVER_REWARD;
+      revealAt(PORTS[i].x,PORTS[i].z,520);
+      toast(`⚓ 发现新港:${PORTS[i].n}!发现奖励 ${fmt(DISCOVER_REWARD)} 金`);
+      if(chartOpen) refreshRouteList();
+      saveGame();
+    }
+  }
+}
+function packExplored(){ // 存档:游程压缩为紧凑字符串
+  let s="",run=0,cur=EXPLORED[0];
+  for(let i=0;i<EXPLORED.length;i++){
+    if(EXPLORED[i]===cur){run++;}
+    else{s+=(cur?"1":"0")+run+".";cur=EXPLORED[i];run=1;}
+  }
+  s+=(cur?"1":"0")+run;
+  return s;
+}
+function unpackExplored(s){
+  EXPLORED=new Uint8Array(EXW*EXH);
+  if(!s) return;
+  let i=0;
+  for(const tok of s.split(".")){
+    if(!tok) continue;
+    const v=tok[0]==="1"?1:0, run=parseInt(tok.slice(1),10)||0;
+    for(let k=0;k<run&&i<EXPLORED.length;k++) EXPLORED[i++]=v;
+  }
 }
 /* ================= 陆地栅格 / 距离场 / 地形 / A* ================= */
 let LAND;            // Uint8Array MASKW*MASKH  1=陆
@@ -848,7 +940,12 @@ function buildPorts(){
     label.position.set(p.x,24,p.z);
     g.add(label);
     scene.add(g);
+    p._label=label;                       // 未发现的远洋港先隐藏名牌
   }
+}
+function updatePortLabels(){
+  for(let i=0;i<PORTS.length;i++)
+    if(PORTS[i]._label) PORTS[i]._label.visible=portDiscovered(i);
 }
 
 /* ---- 程序化帆船 ---- */
@@ -1095,6 +1192,7 @@ const G={
   routes:[],                       // {name, ports:[idx], paths:[wp[]], profit, trips}
   fleet:[],                        // {routeIdx, leg, s(路径参数u), dockT, cargo:{}, gold?}
   npcNextRoute:0,                  // 下一条 NPC 扩展航线的游戏时间
+  discovered:[],                   // 远洋港是否已发现
   lastSave:0,
 };
 const player={
@@ -1755,14 +1853,15 @@ function saveGame(){
       routes:G.routes.map(r=>({name:r.name,ports:r.ports,profit:r.profit||0,trips:r.trips||0,npc:!!r.npc,owner:r.owner||null})),
       fleet:G.fleet.map(f=>({routeIdx:f.routeIdx,leg:f.leg,s:f.s,dockT:f.dockT,cargo:f.cargo,buyCost:f.buyCost||0,npc:!!f.npc,owner:f.owner||null,gold:f.gold||0})),
       npcNextRoute:G.npcNextRoute,
+      discovered:G.discovered, explored:packExplored(),
       ts:Date.now(),
     };
-    localStorage.setItem("dhh_med_save",JSON.stringify(data));
+    localStorage.setItem("dhh_atl_save",JSON.stringify(data));
   }catch(e){}
 }
 function loadGame(){
   try{
-    const raw=localStorage.getItem("dhh_med_save");
+    const raw=localStorage.getItem("dhh_atl_save");
     if(!raw) return false;
     const d=JSON.parse(raw);
     G.gold=d.gold; G.gt=d.gt; G.shipClass=d.shipClass||0;
@@ -1772,6 +1871,8 @@ function loadGame(){
     for(const r of G.routes) compileRoute(r);
     G.fleet=(d.fleet||[]).map(f=>({...f}));
     G.npcNextRoute=d.npcNextRoute||0;
+    G.discovered=d.discovered||[];
+    if(d.explored) unpackExplored(d.explored); else initExploration();
     ensureNpcNetwork();
     const off=(Date.now()-d.ts)/1000;
     if(off>10){
@@ -1851,19 +1952,49 @@ function drawChart(){
     });
     c.stroke(); c.setLineDash([]);
   }
-  // 港口
+  // 迷雾:未探索区域覆盖暗色(逐格)
+  const cw=WORLD_W/EXW*chart.zoom, ch=WORLD_H/EXH*chart.zoom;
+  c.fillStyle="rgba(12,20,32,0.82)";
+  for(let ey=0;ey<EXH;ey++){
+    let run=-1;
+    for(let ex=0;ex<=EXW;ex++){
+      const fog=ex<EXW && EXPLORED[ey*EXW+ex]===0;
+      if(fog&&run<0) run=ex;
+      else if(!fog&&run>=0){
+        const [px,py]=w2c(run*WORLD_W/EXW,ey*WORLD_H/EXH);
+        if(py>-ch&&py<h+ch) c.fillRect(px-0.5,py-0.5,(ex-run)*cw+1,ch+1);
+        run=-1;
+      }
+    }
+  }
+  // 港口(仅已发现)
   c.font="12px sans-serif";
-  for(const p of PORTS){
+  for(let pi=0;pi<PORTS.length;pi++){
+    if(!portDiscovered(pi)) continue;
+    const p=PORTS[pi];
     const [px,py]=w2c(p.x,p.z);
     if(px<-30||py<-30||px>w+30||py>h+30) continue;
-    c.fillStyle="#8a2020";
+    c.fillStyle=p.far?"#a05a20":"#8a2020";
     c.beginPath(); c.arc(px,py,4,0,7); c.fill();
     c.strokeStyle="#f0e0c0"; c.lineWidth=1; c.stroke();
     c.fillStyle="#1a2a35";
     c.fillText(p.n,px+7,py-5);
-    c.fillStyle="#f5e8cc";
+    c.fillStyle=p.far?"#ffca8a":"#f5e8cc";
     c.fillText(p.n,px+6,py-6);
   }
+  // 未发现远洋港:神秘 "?" 指引(浮于迷雾之上)
+  c.font="bold 15px sans-serif";
+  for(let pi=0;pi<PORTS.length;pi++){
+    if(portDiscovered(pi)) continue;
+    const p=PORTS[pi];
+    const [px,py]=w2c(p.x,p.z);
+    if(px<-20||py<-20||px>w+20||py>h+20) continue;
+    c.fillStyle="rgba(240,200,120,0.55)";
+    c.beginPath(); c.arc(px,py,7,0,7); c.fill();
+    c.fillStyle="#3a2a10"; c.textAlign="center"; c.textBaseline="middle";
+    c.fillText("?",px,py); c.textAlign="left"; c.textBaseline="alphabetic";
+  }
+  c.font="12px sans-serif";
   // 商船(可点击跟随)
   G.fleet.forEach((f,i)=>{
     const pos=fleetPos(f);
@@ -1899,6 +2030,7 @@ function drawChart(){
 
 function chartPortAt(px,py){
   for(let i=0;i<PORTS.length;i++){
+    if(!portDiscovered(i)) continue;
     const [cx,cy]=w2c(PORTS[i].x,PORTS[i].z);
     if(Math.hypot(cx-px,cy-py)<12) return i;
   }
@@ -1995,8 +2127,14 @@ function drawMinimap(){
   c.clearRect(0,0,230,156);
   c.drawImage(miniImg,0,0);
   const sx=230/WORLD_W, sy=156/WORLD_H;
+  // 迷雾
+  const fw=230/EXW, fh=156/EXH;
+  c.fillStyle="rgba(10,18,30,0.72)";
+  for(let ey=0;ey<EXH;ey++)for(let ex=0;ex<EXW;ex++)
+    if(EXPLORED[ey*EXW+ex]===0) c.fillRect(ex*fw,ey*fh,fw+0.6,fh+0.6);
   c.fillStyle="#ff5555";
-  for(const p of PORTS){c.fillRect(p.x*sx-1,p.z*sy-1,2,2);}
+  for(let i=0;i<PORTS.length;i++){ if(!portDiscovered(i))continue;
+    const p=PORTS[i]; c.fillRect(p.x*sx-1,p.z*sy-1,2,2); }
   c.fillStyle="#8fd0ff";
   for(const f of G.fleet){
     const pos=fleetPos(f);
@@ -2275,6 +2413,7 @@ function init(){
   // 出生点:里斯本外海
   const lis=PORTS[0];
   player.x=lis.x-40; player.z=lis.z; player.heading=Math.PI/2;
+  initExploration();                      // 默认已知海域(load 会覆盖)
   const loaded=loadGame();
   ensureNpcNetwork();
   if(TEST_MODE) G.gold=999999999;
@@ -2314,6 +2453,8 @@ function tick(now){
   updateWeather(dt);
   updateWind(dt);
   if(G.docked<0) updatePlayer(dt);
+  updateExploration(dt);
+  updatePortLabels();
   updateFleet(dt);
   updateCamera(dt);
   updateSun();
