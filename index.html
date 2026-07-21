@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>大航海时代 · 3.1 港口吞吐</title>
+<title>大航海时代 · 3.2 商会伙伴</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { width:100%; height:100%; overflow:hidden; background:#06121e;
@@ -215,7 +215,7 @@
   <div id="chartClose">✕</div>
   <div id="chartUI" class="panel">
     <h3>航海图</h3>
-    <div id="chartHintLine" style="color:#9ab4cc;font-size:12px;">拖动平移 · 滚轮缩放 · 点击港口</div>
+    <div id="chartHintLine" style="color:#9ab4cc;font-size:12px;">拖动平移 · 红点=已发现 · 紫框=伙伴地图坐标</div>
     <div class="tbtn" id="btnNewRoute" style="margin-top:8px;text-align:center;">✚ 新建自动航线</div>
     <div id="editBox" style="display:none;margin-top:8px;">
       <div style="color:#ffd98a;">编辑航线:依次点击港口</div>
@@ -229,7 +229,7 @@
 </div>
 
 <div id="help" class="panel">
-  <h2>⚓ 大航海时代 · 3.1 港口吞吐</h2>
+  <h2>⚓ 大航海时代 · 3.2 商会伙伴</h2>
   <div><kbd>W</kbd><kbd>S</kbd> 升帆 / 收帆 <kbd>A</kbd><kbd>D</kbd> 左舵 / 右舵</div>
   <div><kbd>鼠标拖动</kbd> 转动视角 <kbd>滚轮</kbd> 缩放(触屏:单指转视角/双指缩放)</div>
   <div><kbd>E</kbd> 进港 / 离港 <kbd>M</kbd> 海图 <kbd>X</kbd> 取消自动航行</div>
@@ -241,6 +241,8 @@
     天气会在晴、多云、雨之间流转,雨天风更急。
     <br><br><b style="color:#ffbd72">港口吞吐:</b>港口泊位有限,远洋前哨、普通港与枢纽港的容量各不相同。
     玩家与自动商船共享泊位并按抵达顺序装卸;繁忙港口会在锚地形成队列,海图可查看实时拥堵。
+    <br><br><b style="color:#d6a8f0">商会伙伴:</b>阿尔瓦罗、索菲亚与伊德里斯的航线会显示在海图上。
+    伙伴带回的港口坐标会标注在地图中,但商品情报与自动贸易仍需你亲自抵近港口后解锁。
     <br><br><b style="color:#ffca8a">远洋探索:</b>海图西侧笼罩迷雾,金色「?」标记着未知的大西洋港口——
     亲自驾船驶入迷雾、抵近即可点亮它们,并获得发现奖励。远洋港出产象牙、金砂、龙涎香、染料等
     只有那里才有的高价货,运回地中海可获厚利。未发现的港口无法设为自动航线目标,唯有先亲历。
@@ -423,6 +425,9 @@ const NPC_ROUTE_PLANS=[
   {name:"阿尔瓦罗商会 · 北非线", ports:[2,22,20,19], owner:"阿尔瓦罗"},
   {name:"索菲亚商会 · 亚得里亚线", ports:[9,10,13,14], owner:"索菲亚"},
   {name:"伊德里斯商会 · 香料线", ports:[17,18,16,15], owner:"伊德里斯"},
+  {name:"阿尔瓦罗商会 · 大西洋先遣线", ports:[0,23,25,26], owner:"阿尔瓦罗"},
+  {name:"索菲亚商会 · 亚速尔补给线", ports:[8,0,25,28], owner:"索菲亚"},
+  {name:"伊德里斯商会 · 西非黄金线", ports:[22,23,24,27], owner:"伊德里斯"},
 ];
 
 /* 价格函数:随港口/日期波动,纯函数便于离线结算 */
@@ -465,15 +470,17 @@ function isExplored(x,z){
   return EXPLORED[cy*EXW+cx]===1;
 }
 function portDiscovered(i){ return !PORTS[i].far || !!G.discovered[i]; }
+function portCharted(i){ return portDiscovered(i)||!!G.charted[i]; }
 function updateExploration(dt){
   revealAt(player.x,player.z,340);
   for(let i=0;i<PORTS.length;i++){
     if(PORTS[i].far && !G.discovered[i] &&
        Math.hypot(PORTS[i].x-player.x,PORTS[i].z-player.z)<160){
       G.discovered[i]=true;
+      G.charted[i]=true;
       G.gold+=DISCOVER_REWARD;
       revealAt(PORTS[i].x,PORTS[i].z,520);
-      toast(`⚓ 发现新港:${PORTS[i].n}!发现奖励 ${fmt(DISCOVER_REWARD)} 金`);
+      toast(`⚓ 亲自发现新港:${PORTS[i].n}!完整情报解锁 · 奖励 ${fmt(DISCOVER_REWARD)} 金`);
       if(chartOpen) refreshRouteList();
       saveGame();
     }
@@ -1200,6 +1207,7 @@ const G={
   playerQueueNo:0,
   portQueueSeq:0,
   discovered:[],                   // 远洋港是否已发现
+  charted:[],                      // 3.2 已获得准确地图坐标（不等于亲自发现）
   lastSave:0,
 };
 const player={
@@ -1240,26 +1248,42 @@ function portOpsBanner(pi){
 }
 
 function addNpcRoute(plan){
-  const r={name:plan.name,ports:plan.ports.slice(),profit:0,trips:0,npc:true,owner:plan.owner};
+  const r={name:plan.name,ports:plan.ports.slice(),profit:0,trips:0,npc:true,partner:true,owner:plan.owner};
   compileRoute(r);
   G.routes.push(r);
-  const f={routeIdx:G.routes.length-1,leg:0,s:0,dockT:0,cargo:{},buyCost:0,npc:true,owner:plan.owner,gold:18000};
+  const f={routeIdx:G.routes.length-1,leg:0,s:0,dockT:0,cargo:{},buyCost:0,npc:true,partner:true,owner:plan.owner,gold:18000};
   G.fleet.push(f);
+  syncPartnerCharts();
   if(scene) initFleetMesh(f);
 }
+function syncPartnerCharts(){
+  for(const r of G.routes){
+    if(!r.npc)continue;
+    r.partner=true;
+    for(const pi of r.ports) G.charted[pi]=true;
+  }
+  for(const f of G.fleet){
+    const r=G.routes[f.routeIdx];
+    if(r&&r.npc){f.npc=true;f.partner=true;f.owner=f.owner||r.owner;}
+  }
+}
 function ensureNpcNetwork(){
-  const npcRoutes=G.routes.filter(r=>r.npc).length;
-  for(let i=npcRoutes;i<Math.min(3,NPC_ROUTE_PLANS.length);i++) addNpcRoute(NPC_ROUTE_PLANS[i]);
+  for(const plan of NPC_ROUTE_PLANS.slice(0,3)){
+    if(!G.routes.some(r=>r.npc&&r.name===plan.name))addNpcRoute(plan);
+  }
+  const atlantic=NPC_ROUTE_PLANS.find(p=>p.name.includes("大西洋先遣线"));
+  if(atlantic&&!G.routes.some(r=>r.npc&&r.name===atlantic.name))addNpcRoute(atlantic);
+  syncPartnerCharts();
   if(!G.npcNextRoute) G.npcNextRoute=G.gt+NPC_ROUTE_INTERVAL;
 }
 function updateNpcNetwork(){
   if(G.npcNextRoute>G.gt) return;
-  const npcRoutes=G.routes.filter(r=>r.npc).length;
-  if(npcRoutes>=NPC_ROUTE_PLANS.length){ G.npcNextRoute=Infinity; return; }
-  addNpcRoute(NPC_ROUTE_PLANS[npcRoutes]);
+  const plan=NPC_ROUTE_PLANS.find(p=>!G.routes.some(r=>r.npc&&r.name===p.name));
+  if(!plan){ G.npcNextRoute=Infinity; return; }
+  addNpcRoute(plan);
   G.npcNextRoute=G.gt+NPC_ROUTE_INTERVAL;
   const r=G.routes[G.routes.length-1];
-  toast(`航海消息：${r.owner} 商会开辟了「${r.name.split(" · ")[1]}」`);
+  toast(`伙伴消息：${r.owner} 开辟了「${r.name.split(" · ")[1]}」，沿途港口已标注`);
   if(chartOpen) refreshRouteList();
 }
 
@@ -1522,6 +1546,9 @@ function toast(msg){
 function fmt(n){return Math.floor(n).toLocaleString("en-US");}
 function cargoCount(c){let s=0;for(const k in c)s+=c[k];return s;}
 function gameDay(){return G.gt/86400;}
+function portCoordText(p){
+  return `${Math.abs(p.lon).toFixed(2)}°${p.lon<0?"W":"E"} · ${Math.abs(p.lat).toFixed(2)}°${p.lat<0?"S":"N"}`;
+}
 
 function finishDock(i){
   G.waitingPort=-1; G.playerQueueNo=0;
@@ -1670,7 +1697,7 @@ function renderRoutesTab(){
     if(r.npc){
       html+=`<div class="shopCard"><div><b style="color:#d6a8f0">${r.name}</b>
         <span style="color:#9ab4cc;font-size:12px">${r.ports.map(i=>PORTS[i].n).join(" → ")}</span><br>
-        <span style="font-size:12px;color:#d6a8f0">${r.owner} 的 NPC 商队 · 持续扩展中</span></div></div>`;
+        <span style="font-size:12px;color:#d6a8f0">🤝 同商会伙伴 ${r.owner} · 共享航线与港口坐标</span></div></div>`;
       return;
     }
     html+=`<div class="shopCard"><div>
@@ -1895,7 +1922,10 @@ function initFleetMesh(f,detailed){
   scene.add(f.mesh);
 }
 /* ---- 跟船/接管 ---- */
-function shipLabel(i){ return "商船"+(i+1)+"号"; }
+function shipLabel(i){
+  const f=G.fleet[i];
+  return f&&f.npc?`${f.owner||"商会"}伙伴船`:"商船"+(i+1)+"号";
+}
 function fleetControlled(){
   return focus.type==="fleet"&&G.fleet[focus.idx]&&G.fleet[focus.idx].controlled;
 }
@@ -1967,10 +1997,10 @@ function saveGame(){
       gold:G.gold, gt:G.gt, shipClass:G.shipClass, cargo:G.cargo, docked:G.docked,
       waitingPort:G.waitingPort,playerQueueNo:G.playerQueueNo,portQueueSeq:G.portQueueSeq,
       px:player.x, pz:player.z, ph:player.heading,
-      routes:G.routes.map(r=>({name:r.name,ports:r.ports,profit:r.profit||0,trips:r.trips||0,npc:!!r.npc,owner:r.owner||null})),
-      fleet:G.fleet.map(f=>({routeIdx:f.routeIdx,leg:f.leg,s:f.s,dockT:f.dockT,cargo:f.cargo,buyCost:f.buyCost||0,npc:!!f.npc,owner:f.owner||null,gold:f.gold||0,portState:f.portState||null,portIdx:f.portIdx??-1,queueNo:f.queueNo||0,waitT:f.waitT||0})),
+      routes:G.routes.map(r=>({name:r.name,ports:r.ports,profit:r.profit||0,trips:r.trips||0,npc:!!r.npc,partner:!!r.partner,owner:r.owner||null})),
+      fleet:G.fleet.map(f=>({routeIdx:f.routeIdx,leg:f.leg,s:f.s,dockT:f.dockT,cargo:f.cargo,buyCost:f.buyCost||0,npc:!!f.npc,partner:!!f.partner,owner:f.owner||null,gold:f.gold||0,portState:f.portState||null,portIdx:f.portIdx??-1,queueNo:f.queueNo||0,waitT:f.waitT||0})),
       npcNextRoute:G.npcNextRoute,
-      discovered:G.discovered, explored:packExplored(),
+      discovered:G.discovered, charted:G.charted, explored:packExplored(),
       ts:Date.now(),
     };
     localStorage.setItem("dhh_atl_save",JSON.stringify(data));
@@ -1991,8 +2021,10 @@ function loadGame(){
     for(const f of G.fleet) G.portQueueSeq=Math.max(G.portQueueSeq,f.queueNo||0);
     G.npcNextRoute=d.npcNextRoute||0;
     G.discovered=d.discovered||[];
+    G.charted=d.charted||[];
     if(d.explored) unpackExplored(d.explored); else initExploration();
     ensureNpcNetwork();
+    syncPartnerCharts();
     const off=(Date.now()-d.ts)/1000;
     if(off>10){
       offlineProgress(off);
@@ -2034,6 +2066,22 @@ function prerenderChartMap(){
 }
 function w2c(x,z){ return [(x-chart.x)*chart.zoom, (z-chart.y)*chart.zoom]; }
 function c2w(px,py){ return [px/chart.zoom+chart.x, py/chart.zoom+chart.y]; }
+function drawChartRouteSet(c,partnerOnly){
+  const colors=["#ffd98a","#8fd0ff","#a8e6a1","#f0a8c8","#c8b8f0"];
+  G.routes.forEach((r,ri)=>{
+    if(!r.paths||!!r.npc!==partnerOnly)return;
+    c.strokeStyle=partnerOnly?"#d6a8f0":colors[ri%colors.length];
+    c.lineWidth=partnerOnly?2.2:1.6; c.setLineDash(partnerOnly?[3,4]:[6,5]);
+    c.beginPath();
+    for(const wp of r.paths){
+      for(let i=0;i<wp.length;i++){
+        const [px,py]=w2c(wp[i][0],wp[i][1]);
+        i?c.lineTo(px,py):c.moveTo(px,py);
+      }
+    }
+    c.stroke(); c.setLineDash([]);
+  });
+}
 
 function drawChart(){
   const cv=ui.chartCv, c=cv.getContext("2d");
@@ -2047,20 +2095,8 @@ function drawChart(){
   const [ox,oy]=w2c(0,0);
   c.imageSmoothingEnabled=true;
   c.drawImage(chartMapImg,ox,oy,WORLD_W*chart.zoom,WORLD_H*chart.zoom);
-  // 航线
-  const colors=["#ffd98a","#8fd0ff","#a8e6a1","#f0a8c8","#c8b8f0"];
-  G.routes.forEach((r,ri)=>{
-    if(!r.paths)return;
-    c.strokeStyle=colors[ri%colors.length]; c.lineWidth=1.6; c.setLineDash([6,5]);
-    c.beginPath();
-    for(const wp of r.paths){
-      for(let i=0;i<wp.length;i++){
-        const [px,py]=w2c(wp[i][0],wp[i][1]);
-        i?c.lineTo(px,py):c.moveTo(px,py);
-      }
-    }
-    c.stroke(); c.setLineDash([]);
-  });
+  // 玩家航线受迷雾遮挡；伙伴航线作为共享情报稍后绘制在迷雾上方
+  drawChartRouteSet(c,false);
   // 编辑中航线
   if(chart.editing&&chart.editing.ports.length>0){
     c.strokeStyle="#ff8888"; c.lineWidth=2; c.setLineDash([3,4]);
@@ -2086,6 +2122,7 @@ function drawChart(){
       }
     }
   }
+  drawChartRouteSet(c,true);
   // 港口(仅已发现)
   c.font="12px sans-serif";
   for(let pi=0;pi<PORTS.length;pi++){
@@ -2107,10 +2144,22 @@ function drawChart(){
       c.font="12px sans-serif";
     }
   }
-  // 未发现远洋港:神秘 "?" 指引(浮于迷雾之上)
+  // 已有地图坐标但尚未亲自发现:伙伴情报标注
+  c.font="12px sans-serif";
+  for(let pi=0;pi<PORTS.length;pi++){
+    if(portDiscovered(pi)||!portCharted(pi))continue;
+    const p=PORTS[pi], [px,py]=w2c(p.x,p.z);
+    if(px<-40||py<-30||px>w+40||py>h+30)continue;
+    c.strokeStyle="#d6a8f0"; c.lineWidth=2;
+    c.beginPath(); c.rect(px-4,py-4,8,8); c.stroke();
+    c.fillStyle="#241a31"; c.fillRect(px-2,py-2,4,4);
+    c.fillStyle="#22182c"; c.fillText(p.n+" · 地图标注",px+7,py-5);
+    c.fillStyle="#e1c2f2"; c.fillText(p.n+" · 地图标注",px+6,py-6);
+  }
+  // 尚无准确坐标的远洋港:只显示神秘传闻
   c.font="bold 15px sans-serif";
   for(let pi=0;pi<PORTS.length;pi++){
-    if(portDiscovered(pi)) continue;
+    if(portCharted(pi)) continue;
     const p=PORTS[pi];
     const [px,py]=w2c(p.x,p.z);
     if(px<-20||py<-20||px>w+20||py>h+20) continue;
@@ -2126,7 +2175,7 @@ function drawChart(){
     if(!pos) return;
     const [px,py]=w2c(pos[0],pos[1]);
     const focused=focus.type==="fleet"&&focus.idx===i;
-    c.fillStyle=focused?"#ffd700":"#8fd0ff";
+    c.fillStyle=focused?"#ffd700":f.npc?"#d6a8f0":"#8fd0ff";
     c.beginPath(); c.arc(px,py,focused?5:3.5,0,7); c.fill();
     if(focused){ c.strokeStyle="#fff"; c.lineWidth=1.5; c.stroke(); }
   });
@@ -2155,7 +2204,7 @@ function drawChart(){
 
 function chartPortAt(px,py){
   for(let i=0;i<PORTS.length;i++){
-    if(!portDiscovered(i)) continue;
+    if(!portCharted(i)) continue;
     const [cx,cy]=w2c(PORTS[i].x,PORTS[i].z);
     if(Math.hypot(cx-px,cy-py)<12) return i;
   }
@@ -2173,14 +2222,15 @@ function chartTapAt(cx,cy){
   const pi=chartPortAt(cx,cy);
   if(pi>=0){
     if(chart.editing){ // 编辑模式:加入航线
+      if(!portDiscovered(pi)){toast("该港口只有地图坐标，需亲自发现后才能加入自动航线");return;}
       chart.editing.ports.push(pi);
       ui.editPorts.textContent=chart.editing.ports.map(i=>PORTS[i].n).join(" → ");
       return;
     }
-    const p=PORTS[pi], traffic=portTraffic(pi);
-    ui.portPop.innerHTML=`<div class="pp-name">${p.n}</div>
-      <div style="color:#9ab4cc;font-size:12px">泊位:${traffic.loading}/${traffic.capacity}${traffic.waiting?` · 等待:${traffic.waiting}`:""}<br>特产:${p.prod.map(g=>GOOD_BY_ID[g].n).join("、")}<br>紧缺:${p.need.map(g=>GOOD_BY_ID[g].n).join("、")}</div>
-      <div class="ppbtn" id="ppGo">⛵ 自动航行至此</div>`;
+    const p=PORTS[pi], traffic=portTraffic(pi), discovered=portDiscovered(pi);
+    ui.portPop.innerHTML=discovered
+      ? `<div class="pp-name">${p.n} · 已发现</div><div style="color:#9ab4cc;font-size:12px">${portCoordText(p)}<br>泊位:${traffic.loading}/${traffic.capacity}${traffic.waiting?` · 等待:${traffic.waiting}`:""}<br>特产:${p.prod.map(g=>GOOD_BY_ID[g].n).join("、")}<br>紧缺:${p.need.map(g=>GOOD_BY_ID[g].n).join("、")}</div><div class="ppbtn" id="ppGo">⛵ 自动航行至此</div>`
+      : `<div class="pp-name" style="color:#d6a8f0">${p.n} · 地图坐标</div><div style="color:#9ab4cc;font-size:12px">${portCoordText(p)}<br>由商会伙伴标注 · 尚未亲自确认<br>商品、泊位与自动贸易情报未解锁</div><div class="ppbtn" id="ppGo">🧭 按图航行至附近</div>`;
     ui.portPop.style.left=Math.min(cx+12,innerWidth-190)+"px";
     ui.portPop.style.top=Math.min(cy+8,innerHeight-160)+"px";
     ui.portPop.style.display="block";
@@ -2215,7 +2265,14 @@ function closeChart(){
 function refreshRouteList(){
   let html="";
   G.routes.forEach((r,ri)=>{
-    if(r.npc) return;
+    if(r.npc){
+      const ships=G.fleet.filter(f=>f.routeIdx===ri).length;
+      html+=`<div class="routeItem" style="border-color:#76568b"><span class="rname" style="color:#d6a8f0">🤝 ${r.owner} · ${r.name.split(" · ")[1]||r.name}</span>
+        <span style="color:#c4a7d4;font-size:11px">(${ships}伙伴船)</span><br>
+        <span style="font-size:11px;color:#d6a8f0">${r.ports.map(i=>PORTS[i].n).join("→")}</span><br>
+        <span style="font-size:11px;color:#9ab4cc">共享地图坐标 · 不可编辑</span></div>`;
+      return;
+    }
     const ships=G.fleet.filter(f=>f.routeIdx===ri).length;
     html+=`<div class="routeItem"><span class="rname">${r.name}</span>
       <span style="color:#9ab4cc;font-size:11px">(${ships}船)</span><br>
@@ -2257,13 +2314,16 @@ function drawMinimap(){
   c.fillStyle="rgba(10,18,30,0.72)";
   for(let ey=0;ey<EXH;ey++)for(let ex=0;ex<EXW;ex++)
     if(EXPLORED[ey*EXW+ex]===0) c.fillRect(ex*fw,ey*fh,fw+0.6,fh+0.6);
+  c.fillStyle="#d6a8f0";
+  for(let i=0;i<PORTS.length;i++){ if(portDiscovered(i)||!portCharted(i))continue;
+    const p=PORTS[i]; c.strokeStyle="#d6a8f0"; c.strokeRect(p.x*sx-2,p.z*sy-2,4,4); }
   c.fillStyle="#ff5555";
   for(let i=0;i<PORTS.length;i++){ if(!portDiscovered(i))continue;
     const p=PORTS[i]; c.fillRect(p.x*sx-1,p.z*sy-1,2,2); }
-  c.fillStyle="#8fd0ff";
   for(const f of G.fleet){
     const pos=fleetPos(f);
     if(!pos) continue;
+    c.fillStyle=f.npc?"#d6a8f0":"#8fd0ff";
     c.fillRect(pos[0]*sx-1.5,pos[1]*sy-1.5,3,3);
   }
   c.save();
