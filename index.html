@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>大航海时代 · 地中海</title>
+<title>大航海时代 · 3.1 港口吞吐</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { width:100%; height:100%; overflow:hidden; background:#06121e;
@@ -229,7 +229,7 @@
 </div>
 
 <div id="help" class="panel">
-  <h2>⚓ 大航海时代 · 地中海</h2>
+  <h2>⚓ 大航海时代 · 3.1 港口吞吐</h2>
   <div><kbd>W</kbd><kbd>S</kbd> 升帆 / 收帆 <kbd>A</kbd><kbd>D</kbd> 左舵 / 右舵</div>
   <div><kbd>鼠标拖动</kbd> 转动视角 <kbd>滚轮</kbd> 缩放(触屏:单指转视角/双指缩放)</div>
   <div><kbd>E</kbd> 进港 / 离港 <kbd>M</kbd> 海图 <kbd>X</kbd> 取消自动航行</div>
@@ -239,6 +239,8 @@
     商船与你遵循同一套风与浪——跟随它们时可以看到真实的抢风走位。
     在海图中创建自动航线并购买商船,商队便昼夜不停为你贸易,关闭游戏后收益照常累积。
     天气会在晴、多云、雨之间流转,雨天风更急。
+    <br><br><b style="color:#ffbd72">港口吞吐:</b>港口泊位有限,远洋前哨、普通港与枢纽港的容量各不相同。
+    玩家与自动商船共享泊位并按抵达顺序装卸;繁忙港口会在锚地形成队列,海图可查看实时拥堵。
     <br><br><b style="color:#ffca8a">远洋探索:</b>海图西侧笼罩迷雾,金色「?」标记着未知的大西洋港口——
     亲自驾船驶入迷雾、抵近即可点亮它们,并获得发现奖励。远洋港出产象牙、金砂、龙涎香、染料等
     只有那里才有的高价货,运回地中海可获厚利。未发现的港口无法设为自动航线目标,唯有先亲历。
@@ -256,7 +258,7 @@ const WORLD_W=(LON1-LON0)*SX, WORLD_H=(LAT1-LAT0)*SZ;   // 10500 x 7020
 const MASKW=1200, MASKH=Math.round(MASKW*WORLD_H/WORLD_W); // 1200 x 802
 const TIME_SCALE=120;            // 1现实秒 = 2游戏分钟
 const START_DATE=new Date(1560,0,1).getTime();
-const TEST_MODE=true;            // 测试:金币无限(改为false恢复正常)
+const TEST_MODE=false;           // 正式版关闭无限金币测试
 
 function lonlat2xz(lon,lat){ return [(lon-LON0)*SX, (LAT1-lat)*SZ]; }
 function xz2mask(x,z){ return [x/WORLD_W*MASKW, z/WORLD_H*MASKH]; }
@@ -408,6 +410,8 @@ const SHIP_CLASSES=[
  {id:3,n:"盖伦帆船", cap:520, spd:11.5, turn:0.40, price:72000},
 ];
 const TRADER={cap:150, spd:8.5, price:6000, tax:0.90};  // 自动航线商船(销售缴10%关税)
+const PORT_LOAD_BASE=34;       // 自动商船基础装卸秒数（现实时间）
+const HUB_PORTS=new Set([0,3,8,9,10,16,17]); // 里斯本/伦敦/马赛/热那亚/威尼斯/伊斯坦布尔/亚历山大
 const NPC_ROUTE_INTERVAL=14400; // 每 4 个游戏小时扩展一条航路（约现实 2 分钟）
 const NPC_ROUTE_PLANS=[
   {name:"阿尔瓦罗商会 · 伊比利亚线", ports:[0,2,5], owner:"阿尔瓦罗"},
@@ -1192,6 +1196,9 @@ const G={
   routes:[],                       // {name, ports:[idx], paths:[wp[]], profit, trips}
   fleet:[],                        // {routeIdx, leg, s(路径参数u), dockT, cargo:{}, gold?}
   npcNextRoute:0,                  // 下一条 NPC 扩展航线的游戏时间
+  waitingPort:-1,                  // 玩家正在锚地等待的港口
+  playerQueueNo:0,
+  portQueueSeq:0,
   discovered:[],                   // 远洋港是否已发现
   lastSave:0,
 };
@@ -1204,6 +1211,33 @@ const focus={type:"player", idx:-1};           // 跟随对象:player | fleet
 const weather={cloud:0.25, rain:0, state:0, t:99};
 
 function angNorm(a){ while(a>Math.PI)a-=Math.PI*2; while(a<-Math.PI)a+=Math.PI*2; return a; }
+
+/* 3.1 港口吞吐:有限泊位模拟帆船港/太空Gateway的共享对接能力 */
+function portCapacity(pi){
+  return PORTS[pi].far?1:(HUB_PORTS.has(pi)?3:2);
+}
+function portTraffic(pi){
+  let loading=G.docked===pi?1:0, waiting=G.waitingPort===pi?1:0;
+  for(const f of G.fleet){
+    if(f.portIdx!==pi) continue;
+    if(f.portState==="loading") loading++;
+    else if(f.portState==="waiting") waiting++;
+  }
+  return {capacity:portCapacity(pi),loading,waiting};
+}
+function hasEarlierPortQueue(pi,queueNo,except){
+  if(G.waitingPort===pi&&G.playerQueueNo&&G.playerQueueNo<queueNo) return true;
+  return G.fleet.some(f=>f!==except&&f.portIdx===pi&&f.portState==="waiting"&&
+    (f.queueNo||Number.MAX_SAFE_INTEGER)<queueNo);
+}
+function fleetLoadDuration(f){
+  return PORT_LOAD_BASE+Math.round(cargoCount(f.cargo)/TRADER.cap*24);
+}
+function portOpsBanner(pi){
+  const t=portTraffic(pi);
+  const queue=t.waiting?` · 锚地等待 <b style="color:#ffbd72">${t.waiting}</b> 艘`:"";
+  return `<div style="margin-bottom:9px;padding:6px 8px;border:1px solid #3a5068;border-radius:5px;color:#9ab4cc;font-size:12px">⚓ 泊位 <b style="color:#f5d67b">${t.loading}/${t.capacity}</b>${queue}</div>`;
+}
 
 function addNpcRoute(plan){
   const r={name:plan.name,ports:plan.ports.slice(),profit:0,trips:0,npc:true,owner:plan.owner};
@@ -1343,7 +1377,11 @@ function updatePlayer(dt){
     const p=PORTS[i];
     if(Math.hypot(p.x-player.x,p.z-player.z)<32){nearPort=i;break;}
   }
-  ui.dockHint.style.display=(nearPort>=0&&G.docked<0&&focus.type==="player")?"block":"none";
+  ui.dockHint.style.display=(nearPort>=0&&G.docked<0&&G.waitingPort<0&&focus.type==="player")?"block":"none";
+  if(nearPort>=0&&G.waitingPort<0){
+    const t=portTraffic(nearPort);
+    ui.dockHint.innerHTML=`按 <b>E</b> 进入港口 · 泊位 ${t.loading}/${t.capacity}${t.waiting?` · 等待${t.waiting}`:""}`;
+  }
   player.nearPort=nearPort;
 }
 
@@ -1372,6 +1410,7 @@ function startAutopilot(portIdx){
   const wp=findPath(player.x,player.z,p.x,p.z);
   if(!wp){toast("找不到航路");return;}
   if(G.docked>=0) undock();
+  if(G.waitingPort>=0) cancelPortWait();
   player.autopilot={wp,i:0,targetPort:portIdx};
   ui.autopilotHint.style.display="block";
   toast("自动航行 → "+p.n);
@@ -1484,7 +1523,8 @@ function fmt(n){return Math.floor(n).toLocaleString("en-US");}
 function cargoCount(c){let s=0;for(const k in c)s+=c[k];return s;}
 function gameDay(){return G.gt/86400;}
 
-function dockAt(i){
+function finishDock(i){
+  G.waitingPort=-1; G.playerQueueNo=0;
   G.docked=i; player.speed=0; player.sail=0; cancelAutopilot();
   const p=PORTS[i];
   player.x=p.x; player.z=p.z;
@@ -1493,6 +1533,41 @@ function dockAt(i){
   ui.dockHint.style.display="none";
   showTab("trade");
   saveGame();
+}
+function dockAt(i){
+  if(G.docked===i)return;
+  const t=portTraffic(i);
+  if(t.loading<t.capacity&&!hasEarlierPortQueue(i,Number.MAX_SAFE_INTEGER,null)){
+    finishDock(i); return;
+  }
+  G.waitingPort=i; G.playerQueueNo=++G.portQueueSeq;
+  player.speed=0; player.sail=0; player.rudder=0; cancelAutopilot();
+  const p=PORTS[i]; player.x=p.x; player.z=p.z;
+  ui.dockHint.style.display="block";
+  ui.dockHint.innerHTML=`⚓ ${p.n}锚地排队 · 前方 ${Math.max(0,t.waiting)} 艘 · 按 <b>E</b> 取消`;
+  toast(`${p.n}泊位已满，已在锚地排队`);
+  saveGame();
+}
+function cancelPortWait(){
+  if(G.waitingPort<0)return;
+  const name=PORTS[G.waitingPort].n;
+  G.waitingPort=-1; G.playerQueueNo=0;
+  ui.dockHint.style.display="none";
+  toast(`已取消等待 ${name}`);
+  saveGame();
+}
+function updatePlayerPortQueue(){
+  const pi=G.waitingPort; if(pi<0)return;
+  const t=portTraffic(pi);
+  if(t.loading<t.capacity&&!hasEarlierPortQueue(pi,G.playerQueueNo,null)){
+    toast(`${PORTS[pi].n}已有空泊位，开始靠港`);
+    finishDock(pi); return;
+  }
+  const ahead=G.fleet.filter(f=>f.portIdx===pi&&f.portState==="waiting"&&
+    (f.queueNo||Number.MAX_SAFE_INTEGER)<G.playerQueueNo).length;
+  ui.dockHint.style.display="block";
+  ui.dockHint.innerHTML=`⚓ ${PORTS[pi].n}锚地排队 · 前方 ${ahead} 艘 · 按 <b>E</b> 取消`;
+  if(player.mesh) shipVisual(player.mesh,player,1);
 }
 function undock(){
   G.docked=-1;
@@ -1512,7 +1587,7 @@ function renderTrade(){
   const pi=G.docked; if(pi<0)return;
   const cls=SHIP_CLASSES[G.shipClass];
   const day=gameDay();
-  let html=`<div style="margin-bottom:8px;color:#9ab4cc;">船舱 <b style="color:#f5d67b">${cargoCount(G.cargo)}/${cls.cap}</b> · 特产低价 · 紧缺高价</div>`;
+  let html=portOpsBanner(pi)+`<div style="margin-bottom:8px;color:#9ab4cc;">船舱 <b style="color:#f5d67b">${cargoCount(G.cargo)}/${cls.cap}</b> · 特产低价 · 紧缺高价</div>`;
   html+=`<table class="trade"><tr><th>商品</th><th>价格</th><th>行情</th><th>持有</th><th style="text-align:center">买入</th><th style="text-align:center">卖出</th></tr>`;
   for(const g of GOODS){
     const p=priceAt(pi,g.id,day);
@@ -1549,7 +1624,7 @@ function renderTrade(){
 }
 
 function renderDock(){
-  let html=`<div style="color:#9ab4cc;margin-bottom:10px;">当前座舰:<b style="color:#f5d67b">${SHIP_CLASSES[G.shipClass].n}</b>(载货${SHIP_CLASSES[G.shipClass].cap} · 航速${SHIP_CLASSES[G.shipClass].spd})</div>`;
+  let html=portOpsBanner(G.docked)+`<div style="color:#9ab4cc;margin-bottom:10px;">当前座舰:<b style="color:#f5d67b">${SHIP_CLASSES[G.shipClass].n}</b>(载货${SHIP_CLASSES[G.shipClass].cap} · 航速${SHIP_CLASSES[G.shipClass].spd})</div>`;
   for(const c of SHIP_CLASSES){
     if(c.id===0) continue;
     const owned=G.shipClass===c.id;
@@ -1588,7 +1663,7 @@ function renderDock(){
 }
 
 function renderRoutesTab(){
-  let html="";
+  let html=portOpsBanner(G.docked);
   if(!G.routes.length) html=`<div style="color:#9ab4cc">尚无航线。打开海图(M)→「新建自动航线」,依次点击港口即可。</div>`;
   G.routes.forEach((r,ri)=>{
     const ships=G.fleet.filter(f=>f.routeIdx===ri&&!f.npc).length;
@@ -1613,7 +1688,8 @@ function renderRoutesTab(){
       const ri=+b.dataset.assign;
       const free=G.fleet.find(f=>!f.npc&&f.routeIdx!==ri);
       if(!free){toast("没有可调配的商船(去船坞购买)");return;}
-      free.routeIdx=ri; free.leg=0; free.s=0; free.cargo={};
+      free.routeIdx=ri; free.leg=0; free.s=0; free.cargo={}; free.dockT=0;
+      free.portState=null; free.portIdx=-1; free.queueNo=0; free.waitT=0;
       toast("已调配一艘商船");
       renderRoutesTab(); saveGame();
     };
@@ -1676,14 +1752,35 @@ function fleetTrade(f,atPortIdx,nextPortIdx,tGame){
 function fleetArrive(f,r,tGame){
   const nextLeg=(f.leg+1)%r.ports.length;
   const arrivePort=r.ports[nextLeg];
-  const nextPort=r.ports[(nextLeg+1)%r.ports.length];
-  const gain=fleetTrade(f,arrivePort,nextPort,tGame);
+  f.leg=nextLeg; f.s=0; f.dockT=0; f.phys=null;
+  f.portIdx=arrivePort; f.portState="waiting"; f.waitT=0; f.queueNo=++G.portQueueSeq;
+}
+function finishFleetPort(f,r,tGame){
+  const atPort=r.ports[f.leg], nextPort=r.ports[(f.leg+1)%r.ports.length];
+  const gain=fleetTrade(f,atPort,nextPort,tGame);
   r.profit=(r.profit||0)+gain; r.trips=(r.trips||0)+1;
-  f.leg=nextLeg; f.s=0; f.dockT=45; f.phys=null;
+  f.portState=null; f.portIdx=-1; f.queueNo=0; f.waitT=0; f.dockT=0;
+}
+function stepFleetPort(f,r,dt,tGame){
+  if(f.portState==="waiting"){
+    f.waitT=(f.waitT||0)+dt;
+    const t=portTraffic(f.portIdx);
+    if(t.loading<t.capacity&&!hasEarlierPortQueue(f.portIdx,f.queueNo||Number.MAX_SAFE_INTEGER,f)){
+      f.portState="loading"; f.dockT=fleetLoadDuration(f);
+    }
+    return true;
+  }
+  if(f.portState==="loading"){
+    f.dockT-=dt;
+    if(f.dockT<=0) finishFleetPort(f,r,tGame);
+    return true;
+  }
+  return false;
 }
 function stepFleetShip(f,dt,tGame){   // 低精度推进(离线/远距共用)
   const r=G.routes[f.routeIdx];
   if(!r||!r.paths){return;}
+  if(stepFleetPort(f,r,dt,tGame))return;
   if(f.dockT>0){f.dockT-=dt;return;}
   if(!r.paths[f.leg]){f.leg=0;return;}
   f.s+=TRADER.spd*dt;
@@ -1714,18 +1811,31 @@ function updateFleet(dt){
     if(!r||!r.paths||!r.paths[f.leg]){ if(f.mesh)f.mesh.visible=false; return; }
     const L=r.lens[f.leg], wp=r.paths[f.leg];
     const isFocus=focus.type==="fleet"&&focus.idx===idx;
-    // 在港停泊
+    // 在锚地排队或靠泊装卸
+    if(f.portState){
+      const state=f.portState;
+      stepFleetPort(f,r,dt,G.gt); f.phys=null;
+      if(f.mesh){
+        const [x,z,hd]=pathPoint(wp,0);
+        const vis=isFocus||Math.hypot(x-fs.x,z-fs.z)<900;
+        f.mesh.visible=vis;
+        if(vis){
+          const q=state==="waiting"?1+(f.queueNo||0)%4:0;
+          f.mesh.position.set(x+q*5,waveH(x,z,wind.t)+0.12,z+q*3);
+          f.mesh.rotation.set(0,-hd,0);
+          setSailVisual(f.mesh,0,0,0,wind.t);
+        }
+      }
+      return;
+    }
+    // 兼容3.0存档中已经开始的旧装卸计时
     if(f.dockT>0){
       f.dockT-=dt; f.phys=null;
       if(f.mesh){
         const [x,z,hd]=pathPoint(wp,0);
         const vis=isFocus||Math.hypot(x-fs.x,z-fs.z)<900;
         f.mesh.visible=vis;
-        if(vis){
-          f.mesh.position.set(x,waveH(x,z,wind.t)+0.12,z);
-          f.mesh.rotation.set(0,-hd,0);
-          setSailVisual(f.mesh,0,0,0,wind.t);
-        }
+        if(vis){f.mesh.position.set(x,waveH(x,z,wind.t)+0.12,z);f.mesh.rotation.set(0,-hd,0);setSailVisual(f.mesh,0,0,0,wind.t);}
       }
       return;
     }
@@ -1771,7 +1881,10 @@ function updateFleet(dt){
     if(f.s>=L){
       const wasFocusPort=isFocus;
       fleetArrive(f,r,G.gt);
-      if(wasFocusPort) toast(`${shipLabel(focus.idx)} 抵达 ${PORTS[r.ports[f.leg]].n},靠港交易中`);
+      if(wasFocusPort){
+        const t=portTraffic(r.ports[f.leg]);
+        toast(`${shipLabel(focus.idx)} 抵达 ${PORTS[r.ports[f.leg]].n}${t.loading>=t.capacity?"，进入锚地队列":"，等待分配泊位"}`);
+      }
     }
   });
 }
@@ -1808,6 +1921,7 @@ function cycleFocus(){
 function toggleControl(){
   if(focus.type!=="fleet")return;
   const f=G.fleet[focus.idx]; if(!f)return;
+  if(f.portState||f.dockT>0){toast("船只正在锚地或装卸，离港后才能接管");return;}
   f.controlled=!f.controlled;
   if(f.controlled&&!f.phys){
     const r=G.routes[f.routeIdx];
@@ -1823,10 +1937,12 @@ function updateFocusHint(){
   if(focus.type==="player"){ ui.focusHint.style.display="none"; return; }
   const f=G.fleet[focus.idx];
   const r=f&&G.routes[f.routeIdx];
+  const portText=f&&f.portState==="waiting"?` · ⚓ ${PORTS[f.portIdx].n}锚地等待`:
+    f&&f.portState==="loading"?` · 📦 ${PORTS[f.portIdx].n}装卸中`:"";
   ui.focusHint.style.display="block";
   ui.focusHint.innerHTML=f&&f.controlled
     ? `🎮 操控中 <b>${shipLabel(focus.idx)}</b> · <b>C</b>交还 · <b>Tab</b>切换`
-    : `👁 跟随 <b>${shipLabel(focus.idx)}</b>${r?" · "+r.name:""} · <b>C</b>接管 · <b>Tab</b>切换`;
+    : `👁 跟随 <b>${shipLabel(focus.idx)}</b>${r?" · "+r.name:""}${portText} · <b>C</b>接管 · <b>Tab</b>切换`;
 }
 
 /* ================= 离线/后台 结算 ================= */
@@ -1849,9 +1965,10 @@ function saveGame(){
   try{
     const data={
       gold:G.gold, gt:G.gt, shipClass:G.shipClass, cargo:G.cargo, docked:G.docked,
+      waitingPort:G.waitingPort,playerQueueNo:G.playerQueueNo,portQueueSeq:G.portQueueSeq,
       px:player.x, pz:player.z, ph:player.heading,
       routes:G.routes.map(r=>({name:r.name,ports:r.ports,profit:r.profit||0,trips:r.trips||0,npc:!!r.npc,owner:r.owner||null})),
-      fleet:G.fleet.map(f=>({routeIdx:f.routeIdx,leg:f.leg,s:f.s,dockT:f.dockT,cargo:f.cargo,buyCost:f.buyCost||0,npc:!!f.npc,owner:f.owner||null,gold:f.gold||0})),
+      fleet:G.fleet.map(f=>({routeIdx:f.routeIdx,leg:f.leg,s:f.s,dockT:f.dockT,cargo:f.cargo,buyCost:f.buyCost||0,npc:!!f.npc,owner:f.owner||null,gold:f.gold||0,portState:f.portState||null,portIdx:f.portIdx??-1,queueNo:f.queueNo||0,waitT:f.waitT||0})),
       npcNextRoute:G.npcNextRoute,
       discovered:G.discovered, explored:packExplored(),
       ts:Date.now(),
@@ -1866,10 +1983,12 @@ function loadGame(){
     const d=JSON.parse(raw);
     G.gold=d.gold; G.gt=d.gt; G.shipClass=d.shipClass||0;
     G.cargo=d.cargo||{}; G.docked=d.docked??-1;
+    G.waitingPort=d.waitingPort??-1; G.playerQueueNo=d.playerQueueNo||0; G.portQueueSeq=d.portQueueSeq||0;
     player.x=d.px; player.z=d.pz; player.heading=d.ph||0;
     G.routes=(d.routes||[]).map(r=>({...r}));
     for(const r of G.routes) compileRoute(r);
     G.fleet=(d.fleet||[]).map(f=>({...f}));
+    for(const f of G.fleet) G.portQueueSeq=Math.max(G.portQueueSeq,f.queueNo||0);
     G.npcNextRoute=d.npcNextRoute||0;
     G.discovered=d.discovered||[];
     if(d.explored) unpackExplored(d.explored); else initExploration();
@@ -1981,6 +2100,12 @@ function drawChart(){
     c.fillText(p.n,px+7,py-5);
     c.fillStyle=p.far?"#ffca8a":"#f5e8cc";
     c.fillText(p.n,px+6,py-6);
+    const traffic=portTraffic(pi);
+    if(traffic.waiting>0){
+      c.fillStyle="#ffad58"; c.beginPath(); c.arc(px-7,py-7,7,0,7); c.fill();
+      c.fillStyle="#172838"; c.font="bold 9px sans-serif"; c.fillText(String(traffic.waiting),px-10,py-4);
+      c.font="12px sans-serif";
+    }
   }
   // 未发现远洋港:神秘 "?" 指引(浮于迷雾之上)
   c.font="bold 15px sans-serif";
@@ -2052,9 +2177,9 @@ function chartTapAt(cx,cy){
       ui.editPorts.textContent=chart.editing.ports.map(i=>PORTS[i].n).join(" → ");
       return;
     }
-    const p=PORTS[pi];
+    const p=PORTS[pi], traffic=portTraffic(pi);
     ui.portPop.innerHTML=`<div class="pp-name">${p.n}</div>
-      <div style="color:#9ab4cc;font-size:12px">特产:${p.prod.map(g=>GOOD_BY_ID[g].n).join("、")}<br>紧缺:${p.need.map(g=>GOOD_BY_ID[g].n).join("、")}</div>
+      <div style="color:#9ab4cc;font-size:12px">泊位:${traffic.loading}/${traffic.capacity}${traffic.waiting?` · 等待:${traffic.waiting}`:""}<br>特产:${p.prod.map(g=>GOOD_BY_ID[g].n).join("、")}<br>紧缺:${p.need.map(g=>GOOD_BY_ID[g].n).join("、")}</div>
       <div class="ppbtn" id="ppGo">⛵ 自动航行至此</div>`;
     ui.portPop.style.left=Math.min(cx+12,innerWidth-190)+"px";
     ui.portPop.style.top=Math.min(cy+8,innerHeight-160)+"px";
@@ -2186,6 +2311,7 @@ function bindInput(){
     if(e.code==="Escape"){ if(chartOpen)closeChart(); }
     if(e.code==="KeyE"&&focus.type==="player"){
       if(G.docked>=0) undock();
+      else if(G.waitingPort>=0) cancelPortWait();
       else if(player.nearPort>=0) dockAt(player.nearPort);
     }
   });
@@ -2336,7 +2462,7 @@ function bindTouch(){
   $("tMap").addEventListener("touchstart",e=>{e.preventDefault();chartOpen?closeChart():openChart();},{passive:false});
   $("tDock").addEventListener("touchstart",e=>{e.preventDefault();
     if(focus.type!=="player")return;
-    if(G.docked>=0)undock(); else if(player.nearPort>=0)dockAt(player.nearPort);
+    if(G.docked>=0)undock(); else if(G.waitingPort>=0)cancelPortWait(); else if(player.nearPort>=0)dockAt(player.nearPort);
   },{passive:false});
   $("tNext").addEventListener("touchstart",e=>{e.preventDefault();cycleFocus();},{passive:false});
   $("tTake").addEventListener("touchstart",e=>{e.preventDefault();toggleControl();},{passive:false});
@@ -2452,7 +2578,8 @@ function tick(now){
   updateNpcNetwork();
   updateWeather(dt);
   updateWind(dt);
-  if(G.docked<0) updatePlayer(dt);
+  if(G.waitingPort>=0) updatePlayerPortQueue();
+  else if(G.docked<0) updatePlayer(dt);
   updateExploration(dt);
   updatePortLabels();
   updateFleet(dt);
